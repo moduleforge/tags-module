@@ -10,13 +10,13 @@ Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
   - [x] 1.5 Update root `Makefile` (add tags-module to GO_PROJECTS; add `link-tags` / `unlink-tags`; wire a `link-all`)
   - [x] 1.6 Update root `README.md` to describe tags-module alongside core/users
 
-- [ ] **Phase 2 — Model** (depends on: 1)
-  - [ ] 2.1 Migration 0200 — register `tag` type under `entity`
-  - [ ] 2.2 Migration 0201 — `tags` table + triggers (type-descent, immutability, set_updated_at) + unique index
-  - [ ] 2.3 `queries/tags.sql` — CRUD + search queries
-  - [ ] 2.4 sqlc build → `tags-module/model/db/`
-  - [ ] 2.5 atlas migrate hash → `atlas.sum`
-  - [ ] 2.6 Compile-check `tags-module/model`
+- [x] **Phase 2 — Model** (depends on: 1)
+  - [x] 2.1 Migration 0200 — register `tag` type under `entity`
+  - [x] 2.2 Migration 0201 — `tags` table + triggers (type-descent, immutability, set_updated_at) + unique index
+  - [x] 2.3 `queries/tags.sql` — CRUD + search queries
+  - [x] 2.4 sqlc build → `tags-module/model/db/`
+  - [x] 2.5 atlas migrate hash → `atlas.sum`
+  - [x] 2.6 Compile-check `tags-module/model`
 
 - [ ] **Phase 3 — API** (depends on: 2)
   - [ ] 3.1 `tags-module/api/service/tag.go` — TagService (Create, Get, Search, Update, Delete) with authz + audit
