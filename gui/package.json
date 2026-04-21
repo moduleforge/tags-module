@@ -20,12 +20,21 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .yalc yalc.lock"
   },
-  "optionalDependencies": {
-    "@moduleforge/core-gui": "*"
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "tailwind-merge": "^3.5.0"
   },
   "peerDependencies": {
+    "@moduleforge/core-gui": "*",
     "react": "^19",
     "react-dom": "^19"
+  },
+  "peerDependenciesMeta": {
+    "@moduleforge/core-gui": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/react": "^19",

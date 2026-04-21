@@ -41,7 +41,10 @@ type CreateTagInput struct {
 
 // UpdateTagInput carries the only mutable field on a tag.
 type UpdateTagInput struct {
-	Color *string // nil = no change
+	// Color = nil clears the color (sets DB column to NULL).
+	// Color = &"" is invalid (rejected by regex).
+	// Color = &"#RRGGBBAA" sets the color.
+	Color *string
 }
 
 // SearchTagsFilter filters the tag search. At least one of OwnerEntityUUID /
@@ -378,28 +381,21 @@ func (s *TagService) UpdateByUUID(
 		return Tag{}, ErrNotFound
 	}
 
-	if in.Color == nil {
-		// Nothing to update; return current state.
-		ownerEntity, err := coreQ.GetEntityByID(ctx, row.OwnerID)
-		if err != nil {
-			return Tag{}, fmt.Errorf("tag.UpdateByUUID resolve owner: %w", err)
-		}
-		subjectEntity, err := coreQ.GetEntityByID(ctx, row.SubjectID)
-		if err != nil {
-			return Tag{}, fmt.Errorf("tag.UpdateByUUID resolve subject: %w", err)
-		}
-		return hydrateTag(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, tagFromUUIDRow(row)), nil
-	}
-
-	if !colorRe.MatchString(*in.Color) {
+	// Validate non-nil color before writing.
+	if in.Color != nil && !colorRe.MatchString(*in.Color) {
 		return Tag{}, fmt.Errorf("%w: color must match #RRGGBBAA", ErrInvalidInput)
 	}
 
 	before := colorSnapshot(row.Color)
 
+	colorParam := pgtype.Text{}
+	if in.Color != nil {
+		colorParam = pgtype.Text{String: *in.Color, Valid: true}
+	}
+
 	updated, err := tagQ.UpdateTagColor(ctx, tagsdb.UpdateTagColorParams{
 		EntityID: row.EntityID,
-		Color:    pgtype.Text{String: *in.Color, Valid: true},
+		Color:    colorParam,
 	})
 	if err != nil {
 		return Tag{}, fmt.Errorf("tag.UpdateByUUID update: %w", err)

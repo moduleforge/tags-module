@@ -355,6 +355,19 @@ func TestTagService_Update_InvalidColor(t *testing.T) {
 	}
 }
 
+func TestTagService_Update_NilColorClears(t *testing.T) {
+	svc, coreQ, tagQ, tagUUID, ownerID, _, _ := buildServiceWithTag(t)
+	actor := userPrincipal(ownerID)
+
+	tag, err := svc.UpdateByUUID(context.Background(), coreQ, tagQ, actor, tagUUID, UpdateTagInput{Color: nil})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tag.Color != nil {
+		t.Errorf("want nil color after clear, got %v", tag.Color)
+	}
+}
+
 // --- DeleteByUUID authz tests ---
 
 func TestTagService_Delete_OwnerOK(t *testing.T) {
