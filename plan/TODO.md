@@ -2,13 +2,13 @@
 
 Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
-- [ ] **Phase 1 — Bootstrap tags-module skeleton** (depends on: none)
-  - [ ] 1.1 Scaffold `tags-module/model/` (go.mod, atlas.hcl, sqlc.yaml, Makefile, .gitignore, README)
-  - [ ] 1.2 Scaffold `tags-module/api/` (go.mod, Makefile, empty service/httpapi packages, go.sum)
-  - [ ] 1.3 Scaffold `tags-module/gui/` (package.json, tsconfig, tsup config, empty src/index.ts)
-  - [ ] 1.4 Update top-level `go.work` to include tags-module modules + replace directives
-  - [ ] 1.5 Update root `Makefile` (add tags-module to GO_PROJECTS; add `link-tags` / `unlink-tags`; wire a `link-all`)
-  - [ ] 1.6 Update root `README.md` to describe tags-module alongside core/users
+- [x] **Phase 1 — Bootstrap tags-module skeleton** (depends on: none)
+  - [x] 1.1 Scaffold `tags-module/model/` (go.mod, atlas.hcl, sqlc.yaml, Makefile, .gitignore, README)
+  - [x] 1.2 Scaffold `tags-module/api/` (go.mod, Makefile, empty service/httpapi packages, go.sum)
+  - [x] 1.3 Scaffold `tags-module/gui/` (package.json, tsconfig, tsup config, empty src/index.ts)
+  - [x] 1.4 Update top-level `go.work` to include tags-module modules + replace directives
+  - [x] 1.5 Update root `Makefile` (add tags-module to GO_PROJECTS; add `link-tags` / `unlink-tags`; wire a `link-all`)
+  - [x] 1.6 Update root `README.md` to describe tags-module alongside core/users
 
 - [ ] **Phase 2 — Model** (depends on: 1)
   - [ ] 2.1 Migration 0200 — register `tag` type under `entity`
