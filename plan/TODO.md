@@ -26,14 +26,14 @@ Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
   - [x] 3.5 `tags-module/api/openapi.fragment.yaml`
   - [x] 3.6 `make test` green in `tags-module/api`
 
-- [ ] **Phase 4 — GUI** (depends on: 1; may run in parallel with 2/3)
-  - [ ] 4.1 API client helpers (`src/lib/api.ts`) — `listTagsForSubject`, `createTag`, `updateTagColor`, `deleteTag`
-  - [ ] 4.2 `<TagChip>` component (presentational, color-aware)
-  - [ ] 4.3 `<TagList>` component (fetch by subject + optional purposes, renders chips)
-  - [ ] 4.4 `<TagEditor>` component (add/remove; purpose handling per `purposes` prop)
-  - [ ] 4.5 `src/index.ts` re-exports
-  - [ ] 4.6 tsup build produces ESM + types
-  - [ ] 4.7 `npm run typecheck` clean
+- [x] **Phase 4 — GUI** (depends on: 1; may run in parallel with 2/3)
+  - [x] 4.1 API client helpers (`src/lib/api.ts`) — `listTagsForSubject`, `createTag`, `updateTagColor`, `deleteTag`
+  - [x] 4.2 `<TagChip>` component (presentational, color-aware)
+  - [x] 4.3 `<TagList>` component (fetch by subject + optional purposes, renders chips)
+  - [x] 4.4 `<TagEditor>` component (add/remove; purpose handling per `purposes` prop)
+  - [x] 4.5 `src/index.ts` re-exports
+  - [x] 4.6 tsup build produces ESM + types
+  - [x] 4.7 `npm run typecheck` clean
 
 - [ ] **Phase 5 — Wire into users-module** (depends on: 2, 3, 4)
   - [ ] 5.1 Extend `users-module/model` compose pipeline to copy tags migrations/queries
