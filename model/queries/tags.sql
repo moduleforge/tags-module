@@ -1,5 +1,6 @@
--- Optional filters use the ($N::type IS NULL OR col = $N::type) pattern,
--- matching the convention established in users-module/model/queries/user_accounts.sql.
+-- Optional filters use the (sqlc.narg('name')::type IS NULL OR col = sqlc.narg('name')::type)
+-- pattern so the generated params struct has readable, nullable field names (pgtype.Text,
+-- pgtype.Int8, etc.) instead of positional Column1/Column2 names.
 
 -- name: CreateTag :one
 INSERT INTO tags (entity_id, owner_id, subject_id, purpose, value, color)
@@ -18,10 +19,11 @@ FROM tags t
 JOIN entities e ON e.id = t.entity_id
 WHERE e.uuid = $1;
 
--- name: UpdateTagColor :exec
+-- name: UpdateTagColor :one
 UPDATE tags
-SET color = $2
-WHERE entity_id = $1;
+SET color = @color
+WHERE entity_id = @entity_id
+RETURNING entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at;
 
 -- name: DeleteTag :exec
 DELETE FROM tags
@@ -30,17 +32,17 @@ WHERE entity_id = $1;
 -- name: ListTagsBySubjectEntityID :many
 SELECT entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at
 FROM tags
-WHERE subject_id = $1
-  AND ($2::text IS NULL OR purpose = $2::text)
+WHERE subject_id = sqlc.arg('subject_id')
+  AND (sqlc.narg('purpose')::text IS NULL OR purpose = sqlc.narg('purpose')::text)
 ORDER BY created_at ASC;
 
 -- name: SearchTags :many
 SELECT entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at
 FROM tags
-WHERE ($1::bigint IS NULL OR owner_id = $1::bigint)
-  AND ($2::bigint IS NULL OR subject_id = $2::bigint)
-  AND ($3::text IS NULL OR purpose = $3::text)
-  AND ($4::text IS NULL OR value = $4::text)
+WHERE (sqlc.narg('owner_id')::bigint IS NULL OR owner_id = sqlc.narg('owner_id')::bigint)
+  AND (sqlc.narg('subject_id')::bigint IS NULL OR subject_id = sqlc.narg('subject_id')::bigint)
+  AND (sqlc.narg('purpose')::text IS NULL OR purpose = sqlc.narg('purpose')::text)
+  AND (sqlc.narg('value')::text IS NULL OR value = sqlc.narg('value')::text)
 ORDER BY created_at ASC;
 
 -- name: CountTagsBySubjectEntityID :one

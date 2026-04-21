@@ -3,8 +3,8 @@
 
 CREATE TABLE tags (
   entity_id   BIGINT PRIMARY KEY REFERENCES entities(id) ON DELETE RESTRICT,
-  owner_id    BIGINT NOT NULL REFERENCES entities(id),
-  subject_id  BIGINT NOT NULL REFERENCES entities(id),
+  owner_id    BIGINT NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
+  subject_id  BIGINT NOT NULL REFERENCES entities(id) ON DELETE RESTRICT,
   purpose     TEXT NOT NULL CHECK (char_length(purpose) <= 512),
   value       TEXT NOT NULL CHECK (char_length(value) <= 512),
   color       TEXT CHECK (color SIMILAR TO '#[0-9A-Fa-f]{8}'),

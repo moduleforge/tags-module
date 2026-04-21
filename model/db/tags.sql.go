@@ -41,8 +41,9 @@ type CreateTagParams struct {
 	Color     pgtype.Text `json:"color"`
 }
 
-// Optional filters use the ($N::type IS NULL OR col = $N::type) pattern,
-// matching the convention established in users-module/model/queries/user_accounts.sql.
+// Optional filters use the (sqlc.narg('name')::type IS NULL OR col = sqlc.narg('name')::type)
+// pattern so the generated params struct has readable, nullable field names (pgtype.Text,
+// pgtype.Int8, etc.) instead of positional Column1/Column2 names.
 func (q *Queries) CreateTag(ctx context.Context, arg CreateTagParams) (Tag, error) {
 	row := q.db.QueryRow(ctx, createTag,
 		arg.EntityID,
@@ -144,12 +145,12 @@ ORDER BY created_at ASC
 `
 
 type ListTagsBySubjectEntityIDParams struct {
-	SubjectID int64  `json:"subject_id"`
-	Column2   string `json:"column_2"`
+	SubjectID int64       `json:"subject_id"`
+	Purpose   pgtype.Text `json:"purpose"`
 }
 
 func (q *Queries) ListTagsBySubjectEntityID(ctx context.Context, arg ListTagsBySubjectEntityIDParams) ([]Tag, error) {
-	rows, err := q.db.Query(ctx, listTagsBySubjectEntityID, arg.SubjectID, arg.Column2)
+	rows, err := q.db.Query(ctx, listTagsBySubjectEntityID, arg.SubjectID, arg.Purpose)
 	if err != nil {
 		return nil, err
 	}
@@ -188,18 +189,18 @@ ORDER BY created_at ASC
 `
 
 type SearchTagsParams struct {
-	Column1 int64  `json:"column_1"`
-	Column2 int64  `json:"column_2"`
-	Column3 string `json:"column_3"`
-	Column4 string `json:"column_4"`
+	OwnerID   pgtype.Int8 `json:"owner_id"`
+	SubjectID pgtype.Int8 `json:"subject_id"`
+	Purpose   pgtype.Text `json:"purpose"`
+	Value     pgtype.Text `json:"value"`
 }
 
 func (q *Queries) SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, error) {
 	rows, err := q.db.Query(ctx, searchTags,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
+		arg.OwnerID,
+		arg.SubjectID,
+		arg.Purpose,
+		arg.Value,
 	)
 	if err != nil {
 		return nil, err
@@ -228,18 +229,30 @@ func (q *Queries) SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, 
 	return items, nil
 }
 
-const updateTagColor = `-- name: UpdateTagColor :exec
+const updateTagColor = `-- name: UpdateTagColor :one
 UPDATE tags
-SET color = $2
-WHERE entity_id = $1
+SET color = $1
+WHERE entity_id = $2
+RETURNING entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at
 `
 
 type UpdateTagColorParams struct {
-	EntityID int64       `json:"entity_id"`
 	Color    pgtype.Text `json:"color"`
+	EntityID int64       `json:"entity_id"`
 }
 
-func (q *Queries) UpdateTagColor(ctx context.Context, arg UpdateTagColorParams) error {
-	_, err := q.db.Exec(ctx, updateTagColor, arg.EntityID, arg.Color)
-	return err
+func (q *Queries) UpdateTagColor(ctx context.Context, arg UpdateTagColorParams) (Tag, error) {
+	row := q.db.QueryRow(ctx, updateTagColor, arg.Color, arg.EntityID)
+	var i Tag
+	err := row.Scan(
+		&i.EntityID,
+		&i.OwnerID,
+		&i.SubjectID,
+		&i.Purpose,
+		&i.Value,
+		&i.Color,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

@@ -12,15 +12,16 @@ import (
 
 type Querier interface {
 	CountTagsBySubjectEntityID(ctx context.Context, subjectID int64) (int64, error)
-	// Optional filters use the ($N::type IS NULL OR col = $N::type) pattern,
-	// matching the convention established in users-module/model/queries/user_accounts.sql.
+	// Optional filters use the (sqlc.narg('name')::type IS NULL OR col = sqlc.narg('name')::type)
+	// pattern so the generated params struct has readable, nullable field names (pgtype.Text,
+	// pgtype.Int8, etc.) instead of positional Column1/Column2 names.
 	CreateTag(ctx context.Context, arg CreateTagParams) (Tag, error)
 	DeleteTag(ctx context.Context, entityID int64) error
 	GetTagByEntityID(ctx context.Context, entityID int64) (Tag, error)
 	GetTagByEntityUUID(ctx context.Context, argUuid uuid.UUID) (GetTagByEntityUUIDRow, error)
 	ListTagsBySubjectEntityID(ctx context.Context, arg ListTagsBySubjectEntityIDParams) ([]Tag, error)
 	SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, error)
-	UpdateTagColor(ctx context.Context, arg UpdateTagColorParams) error
+	UpdateTagColor(ctx context.Context, arg UpdateTagColorParams) (Tag, error)
 }
 
 var _ Querier = (*Queries)(nil)
