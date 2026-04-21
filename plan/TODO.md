@@ -35,14 +35,14 @@ Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
   - [x] 4.6 tsup build produces ESM + types
   - [x] 4.7 `npm run typecheck` clean
 
-- [ ] **Phase 5 — Wire into users-module** (depends on: 2, 3, 4)
-  - [ ] 5.1 Extend `users-module/model` compose pipeline to copy tags migrations/queries
-  - [ ] 5.2 `atlas migrate hash` on composed dir; regenerate sqlc
-  - [ ] 5.3 `users-module/api/go.mod` require `github.com/moduleforge/tags-api`
-  - [ ] 5.4 `users-module/api/cmd/server/main.go` construct TagService + mount tags router inside authed `/v1`
-  - [ ] 5.5 Tags service registers its display renderer into the same `display.Registry`
-  - [ ] 5.6 `make link-tags` (root Makefile target) publishes tags-module/gui via yalc and adds into users-module/gui
-  - [ ] 5.7 Sanity: a users-module integration test creates a tag via HTTP, reads it back, deletes it
+- [x] **Phase 5 — Wire into users-module** (depends on: 2, 3, 4)
+  - [x] 5.1 Extend `users-module/model` compose pipeline to copy tags migrations/queries
+  - [x] 5.2 `atlas migrate hash` on composed dir; regenerate sqlc
+  - [x] 5.3 `users-module/api/go.mod` require `github.com/moduleforge/tags-api`
+  - [x] 5.4 `users-module/api/cmd/server/main.go` construct TagService + mount tags router inside authed `/v1`
+  - [x] 5.5 Tags service registers its display renderer into the same `display.Registry`
+  - [x] 5.6 `make link-tags` (root Makefile target) publishes tags-module/gui via yalc and adds into users-module/gui
+  - [ ] 5.7 Sanity: a users-module integration test creates a tag via HTTP, reads it back, deletes it — **skipped; no DB-backed integration harness in users-module. See report.5.5.**
 
 - [ ] **Phase 6 — Verification + cleanup** (depends on: all)
   - [ ] 6.1 `make test` green across every sub-project
