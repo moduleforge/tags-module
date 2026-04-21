@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Tag } from './lib/api';
+import { parseColor, composeColor } from './lib/color';
 
 export interface TagChipProps {
   tag: Tag;
@@ -26,24 +27,6 @@ function contrastColor(hexColor: string): string {
   return luminance > 0.5 ? '#000000' : '#ffffff';
 }
 
-/**
- * Parse a #RRGGBBAA string into its RGB (#RRGGBB) and alpha (0–255) parts.
- * Falls back gracefully for #RRGGBB input.
- */
-function parseColor(hex: string): { rgb: string; alpha: number } {
-  const clean = hex.replace('#', '');
-  const rgb = '#' + clean.slice(0, 6).padEnd(6, '0');
-  const alphaHex = clean.slice(6, 8);
-  const alpha = alphaHex.length === 2 ? parseInt(alphaHex, 16) : 255;
-  return { rgb, alpha };
-}
-
-/** Compose a #RRGGBBAA string from an #RRGGBB color and an alpha 0–255. */
-function composeColor(rgb: string, alpha: number): string {
-  const alphaHex = Math.round(alpha).toString(16).padStart(2, '0');
-  return rgb + alphaHex;
-}
-
 const NEUTRAL_BG = '#e5e7eb'; // tailwind gray-200 equivalent
 
 export function TagChip({ tag, noPurpose, onRemove, onColorChange }: TagChipProps) {
@@ -56,6 +39,14 @@ export function TagChip({ tag, noPurpose, onRemove, onColorChange }: TagChipProp
   const [pickerRgb, setPickerRgb] = useState(initialRgb);
   const [pickerAlpha, setPickerAlpha] = useState(initialAlpha);
   const colorEditorRef = useRef<HTMLDivElement>(null);
+
+  // Sync picker state whenever tag.color changes (e.g., after apply or clear)
+  // so reopening the popover always reflects the current tag color.
+  useEffect(() => {
+    const parsed = parseColor(tag.color);
+    setPickerRgb(parsed.rgb);
+    setPickerAlpha(parsed.alpha);
+  }, [tag.color]);
 
   function handleColorApply() {
     const composed = composeColor(pickerRgb, pickerAlpha);

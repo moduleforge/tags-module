@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { TagChip } from './TagChip';
 import type { Tag } from './lib/api';
 import { createTagsClient } from './lib/api';
+import { composeColor } from './lib/color';
 
 export interface TagEditorProps {
   /** Subject entity UUID */
@@ -20,11 +21,6 @@ export interface TagEditorProps {
 }
 
 type LoadState = 'idle' | 'loading' | 'error' | 'ready';
-
-/** Derive the "purpose" portion of #RRGGBBAA from individual RGB + alpha inputs. */
-function composeAddColor(rgb: string, alpha: number): string {
-  return rgb + Math.round(alpha).toString(16).padStart(2, '0');
-}
 
 export function TagEditor({
   subject,
@@ -151,7 +147,7 @@ export function TagEditor({
         subject,
         purpose: purposeToSubmit,
         value: addValue.trim(),
-        color: includeColor ? composeAddColor(addRgb, addAlpha) : undefined,
+        color: includeColor ? composeColor(addRgb, addAlpha) : undefined,
       });
       // Reset form
       if (!purposes || purposes.length !== 1) setAddPurpose('');

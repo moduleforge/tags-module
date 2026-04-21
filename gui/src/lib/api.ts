@@ -67,21 +67,28 @@ export function createTagsClient(opts: TagsClientOptions): {
   return {
     async listBySubject(subjectUuid: string, purposes?: string[]): Promise<Tag[]> {
       const headers = await buildHeaders();
-      const url = `${opts.baseUrl}/entities/${subjectUuid}/tags`;
+      const base = `${opts.baseUrl}/entities/${subjectUuid}/tags`;
+
+      let url: string;
+      if (purposes && purposes.length === 1) {
+        // Delegate single-purpose filtering to the server to avoid over-fetching.
+        url = `${base}?purpose=${encodeURIComponent(purposes[0])}`;
+      } else {
+        url = base;
+      }
+
       const res = await fetchFn(url, { headers });
       // Server returns { tags: Tag[] }
       const body = await handleResponse<{ tags: Tag[] }>(res);
       const tags = body.tags ?? [];
 
-      // Client-side filter for robustness when multiple purposes are requested.
       // purposes=undefined or purposes=[] means "all" — no filter applied.
-      const effectivePurposes = purposes && purposes.length > 0 ? purposes : null;
-      if (effectivePurposes === null || effectivePurposes.length === 1) {
-        // Server already filtered for 0 or 1 purpose; return as-is.
+      // Single-purpose case is already filtered by the server.
+      if (!purposes || purposes.length <= 1) {
         return tags;
       }
       // Multiple purposes: filter client-side
-      const purposeSet = new Set(effectivePurposes);
+      const purposeSet = new Set(purposes);
       return tags.filter((t) => purposeSet.has(t.purpose));
     },
 
