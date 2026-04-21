@@ -20,6 +20,13 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .yalc yalc.lock"
   },
+  "dependencies": {
+    "@moduleforge/core-gui": "file:.yalc/@moduleforge/core-gui",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "tailwind-merge": "^3.5.0"
+  },
   "optionalDependencies": {
     "@moduleforge/core-gui": "*"
   },
