@@ -18,13 +18,13 @@ Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
   - [x] 2.5 atlas migrate hash → `atlas.sum`
   - [x] 2.6 Compile-check `tags-module/model`
 
-- [ ] **Phase 3 — API** (depends on: 2)
-  - [ ] 3.1 `tags-module/api/service/tag.go` — TagService (Create, Get, Search, Update, Delete) with authz + audit
-  - [ ] 3.2 `tags-module/api/service/display.go` — register `tag → name → "purpose:value"`
-  - [ ] 3.3 `tags-module/api/httpapi/router.go` + handlers (`tags.go`, `subject_tags.go`, `response.go`)
-  - [ ] 3.4 Unit tests (service authz paths, uniqueness collision, immutable fields, handler auth paths)
-  - [ ] 3.5 `tags-module/api/openapi.fragment.yaml`
-  - [ ] 3.6 `make test` green in `tags-module/api`
+- [x] **Phase 3 — API** (depends on: 2)
+  - [x] 3.1 `tags-module/api/service/tag.go` — TagService (Create, Get, Search, Update, Delete) with authz + audit
+  - [x] 3.2 `tags-module/api/service/display.go` — register `tag → name → "purpose:value"`
+  - [x] 3.3 `tags-module/api/httpapi/router.go` + handlers (`tags.go`, `subject_tags.go`, `response.go`)
+  - [x] 3.4 Unit tests (service authz paths, uniqueness collision, immutable fields, handler auth paths)
+  - [x] 3.5 `tags-module/api/openapi.fragment.yaml`
+  - [x] 3.6 `make test` green in `tags-module/api`
 
 - [ ] **Phase 4 — GUI** (depends on: 1; may run in parallel with 2/3)
   - [ ] 4.1 API client helpers (`src/lib/api.ts`) — `listTagsForSubject`, `createTag`, `updateTagColor`, `deleteTag`
