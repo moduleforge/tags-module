@@ -1,0 +1,7 @@
+apis:
+  main:
+    root: openapi.fragment.yaml
+
+rules:
+  no-empty-servers: off
+  info-license: off

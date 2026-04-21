@@ -1,0 +1,394 @@
+package service
+
+import (
+	"context"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	coredb "github.com/moduleforge/core-model/db"
+	tagsdb "github.com/moduleforge/tags-model/db"
+)
+
+// --- mock audit.Writer ---
+
+type mockAuditWriter struct {
+	calls []auditCall
+	err   error
+}
+
+type auditCall struct {
+	op             string
+	resource       string
+	targetEntityID *int64
+	before         any
+	after          any
+}
+
+func (m *mockAuditWriter) Write(_ context.Context, op, resource string, targetEntityID *int64, before, after any) error {
+	m.calls = append(m.calls, auditCall{
+		op:             op,
+		resource:       resource,
+		targetEntityID: targetEntityID,
+		before:         before,
+		after:          after,
+	})
+	return m.err
+}
+
+// --- mock coredb.Querier ---
+
+type mockCoreQuerier struct {
+	entities     map[uuid.UUID]coredb.GetEntityByUUIDRow
+	entitiesByID map[int64]coredb.GetEntityByUUIDRow
+	types        map[string]coredb.Type
+	nextID       int64
+	archiveErr   error
+}
+
+func newMockCoreQuerier() *mockCoreQuerier {
+	m := &mockCoreQuerier{
+		entities:     make(map[uuid.UUID]coredb.GetEntityByUUIDRow),
+		entitiesByID: make(map[int64]coredb.GetEntityByUUIDRow),
+		types:        make(map[string]coredb.Type),
+	}
+	m.seedTypes()
+	return m
+}
+
+func (m *mockCoreQuerier) seedTypes() {
+	rows := []struct {
+		id   int64
+		slug string
+	}{
+		{1, "entity"},
+		{2, "legal_entity"},
+		{3, "natural_person"},
+		{4, "corporation"},
+		{5, "service_account"},
+		{6, "tag"},
+	}
+	for _, r := range rows {
+		m.types[r.slug] = coredb.Type{ID: r.id, Slug: r.slug, Name: r.slug, Concrete: true}
+	}
+}
+
+func (m *mockCoreQuerier) nextSeq() int64 {
+	m.nextID++
+	return m.nextID
+}
+
+func (m *mockCoreQuerier) seedEntity(typeSlug string) (uuid.UUID, int64) {
+	id := m.nextSeq()
+	u := uuid.New()
+	now := pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	t := m.types[typeSlug]
+	row := coredb.GetEntityByUUIDRow{
+		ID:                  id,
+		Uuid:                u,
+		FundamentalTypeID:   t.ID,
+		FundamentalTypeSlug: typeSlug,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	m.entities[u] = row
+	m.entitiesByID[id] = row
+	return u, id
+}
+
+func (m *mockCoreQuerier) ArchiveEntity(_ context.Context, argUuid uuid.UUID) error {
+	if m.archiveErr != nil {
+		return m.archiveErr
+	}
+	_, ok := m.entities[argUuid]
+	if !ok {
+		return pgx.ErrNoRows
+	}
+	delete(m.entities, argUuid)
+	return nil
+}
+
+func (m *mockCoreQuerier) CreateEntity(_ context.Context, fundamentalTypeID int64) (coredb.Entity, error) {
+	id := m.nextSeq()
+	u := uuid.New()
+	now := pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	slug := ""
+	for s, t := range m.types {
+		if t.ID == fundamentalTypeID {
+			slug = s
+			break
+		}
+	}
+	row := coredb.GetEntityByUUIDRow{
+		ID:                  id,
+		Uuid:                u,
+		FundamentalTypeID:   fundamentalTypeID,
+		FundamentalTypeSlug: slug,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	m.entities[u] = row
+	m.entitiesByID[id] = row
+	return coredb.Entity{
+		ID:                id,
+		Uuid:              u,
+		FundamentalTypeID: fundamentalTypeID,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}, nil
+}
+
+func (m *mockCoreQuerier) CreateCorporation(_ context.Context, _ coredb.CreateCorporationParams) (coredb.Corporation, error) {
+	return coredb.Corporation{}, nil
+}
+
+func (m *mockCoreQuerier) CreateLegalEntity(_ context.Context, _ int64) (int64, error) { return 0, nil }
+
+func (m *mockCoreQuerier) CreateNaturalPerson(_ context.Context, _ coredb.CreateNaturalPersonParams) (coredb.NaturalPerson, error) {
+	return coredb.NaturalPerson{}, nil
+}
+
+func (m *mockCoreQuerier) CreateServiceAccount(_ context.Context, _ coredb.CreateServiceAccountParams) (coredb.ServiceAccount, error) {
+	return coredb.ServiceAccount{}, nil
+}
+
+func (m *mockCoreQuerier) GetCorporationByEntityID(_ context.Context, _ int64) (coredb.Corporation, error) {
+	return coredb.Corporation{}, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) GetEntityByUUID(_ context.Context, argUuid uuid.UUID) (coredb.GetEntityByUUIDRow, error) {
+	if e, ok := m.entities[argUuid]; ok {
+		return e, nil
+	}
+	return coredb.GetEntityByUUIDRow{}, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) GetEntityByID(_ context.Context, id int64) (coredb.GetEntityByIDRow, error) {
+	if e, ok := m.entitiesByID[id]; ok {
+		return coredb.GetEntityByIDRow{
+			ID:                  e.ID,
+			Uuid:                e.Uuid,
+			FundamentalTypeID:   e.FundamentalTypeID,
+			FundamentalTypeSlug: e.FundamentalTypeSlug,
+			CreatedAt:           e.CreatedAt,
+			UpdatedAt:           e.UpdatedAt,
+			ArchivedAt:          e.ArchivedAt,
+		}, nil
+	}
+	return coredb.GetEntityByIDRow{}, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) GetLegalEntityByEntityID(_ context.Context, _ int64) (int64, error) {
+	return 0, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) GetNaturalPersonByEntityID(_ context.Context, _ int64) (coredb.NaturalPerson, error) {
+	return coredb.NaturalPerson{}, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) GetServiceAccountByEntityID(_ context.Context, _ int64) (coredb.ServiceAccount, error) {
+	return coredb.ServiceAccount{}, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) GetTypeBySlug(_ context.Context, slug string) (coredb.Type, error) {
+	if t, ok := m.types[slug]; ok {
+		return t, nil
+	}
+	return coredb.Type{}, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) GetTypeByID(_ context.Context, id int64) (coredb.Type, error) {
+	for _, t := range m.types {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return coredb.Type{}, pgx.ErrNoRows
+}
+
+func (m *mockCoreQuerier) UnarchiveEntity(_ context.Context, _ uuid.UUID) error { return nil }
+
+func (m *mockCoreQuerier) UpdateCorporation(_ context.Context, _ coredb.UpdateCorporationParams) error {
+	return nil
+}
+
+func (m *mockCoreQuerier) UpdateNaturalPerson(_ context.Context, _ coredb.UpdateNaturalPersonParams) error {
+	return nil
+}
+
+var _ coredb.Querier = (*mockCoreQuerier)(nil)
+
+// --- mock tagsdb.Querier ---
+
+type mockTagQuerier struct {
+	tags       map[int64]tagsdb.Tag     // by entity_id
+	tagsByUUID map[uuid.UUID]tagsdb.Tag // by entity uuid (requires entity uuid mapping)
+	entityUUID map[int64]uuid.UUID      // entity_id → uuid
+	uuidEntity map[uuid.UUID]int64      // uuid → entity_id
+	nextID     int64
+	createErr  error
+	deleteErr  error
+	updateErr  error
+}
+
+func newMockTagQuerier() *mockTagQuerier {
+	return &mockTagQuerier{
+		tags:       make(map[int64]tagsdb.Tag),
+		tagsByUUID: make(map[uuid.UUID]tagsdb.Tag),
+		entityUUID: make(map[int64]uuid.UUID),
+		uuidEntity: make(map[uuid.UUID]int64),
+	}
+}
+
+func (m *mockTagQuerier) nextSeq() int64 {
+	m.nextID++
+	return m.nextID
+}
+
+// seedTag inserts a tag with the given internal IDs and a fresh entity UUID.
+func (m *mockTagQuerier) seedTag(entityID, ownerID, subjectID int64, purpose, value string, color *string) (uuid.UUID, tagsdb.Tag) {
+	u := uuid.New()
+	now := pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	colorParam := pgtype.Text{}
+	if color != nil {
+		colorParam = pgtype.Text{String: *color, Valid: true}
+	}
+	t := tagsdb.Tag{
+		EntityID:  entityID,
+		OwnerID:   ownerID,
+		SubjectID: subjectID,
+		Purpose:   purpose,
+		Value:     value,
+		Color:     colorParam,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.tags[entityID] = t
+	m.tagsByUUID[u] = t
+	m.entityUUID[entityID] = u
+	m.uuidEntity[u] = entityID
+	return u, t
+}
+
+func (m *mockTagQuerier) CountTagsBySubjectEntityID(_ context.Context, subjectID int64) (int64, error) {
+	var count int64
+	for _, t := range m.tags {
+		if t.SubjectID == subjectID {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockTagQuerier) CreateTag(_ context.Context, arg tagsdb.CreateTagParams) (tagsdb.Tag, error) {
+	if m.createErr != nil {
+		return tagsdb.Tag{}, m.createErr
+	}
+	now := pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	t := tagsdb.Tag{
+		EntityID:  arg.EntityID,
+		OwnerID:   arg.OwnerID,
+		SubjectID: arg.SubjectID,
+		Purpose:   arg.Purpose,
+		Value:     arg.Value,
+		Color:     arg.Color,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	m.tags[arg.EntityID] = t
+	return t, nil
+}
+
+func (m *mockTagQuerier) DeleteTag(_ context.Context, entityID int64) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	delete(m.tags, entityID)
+	// Also remove from UUID maps.
+	if u, ok := m.entityUUID[entityID]; ok {
+		delete(m.tagsByUUID, u)
+		delete(m.uuidEntity, u)
+		delete(m.entityUUID, entityID)
+	}
+	return nil
+}
+
+func (m *mockTagQuerier) GetTagByEntityID(_ context.Context, entityID int64) (tagsdb.Tag, error) {
+	if t, ok := m.tags[entityID]; ok {
+		return t, nil
+	}
+	return tagsdb.Tag{}, pgx.ErrNoRows
+}
+
+func (m *mockTagQuerier) GetTagByEntityUUID(_ context.Context, argUuid uuid.UUID) (tagsdb.GetTagByEntityUUIDRow, error) {
+	if t, ok := m.tagsByUUID[argUuid]; ok {
+		return tagsdb.GetTagByEntityUUIDRow{
+			EntityID:  t.EntityID,
+			OwnerID:   t.OwnerID,
+			SubjectID: t.SubjectID,
+			Purpose:   t.Purpose,
+			Value:     t.Value,
+			Color:     t.Color,
+			CreatedAt: t.CreatedAt,
+			UpdatedAt: t.UpdatedAt,
+			Uuid:      argUuid,
+		}, nil
+	}
+	return tagsdb.GetTagByEntityUUIDRow{}, pgx.ErrNoRows
+}
+
+func (m *mockTagQuerier) ListTagsBySubjectEntityID(_ context.Context, arg tagsdb.ListTagsBySubjectEntityIDParams) ([]tagsdb.Tag, error) {
+	var result []tagsdb.Tag
+	for _, t := range m.tags {
+		if t.SubjectID != arg.SubjectID {
+			continue
+		}
+		if arg.Purpose.Valid && t.Purpose != arg.Purpose.String {
+			continue
+		}
+		result = append(result, t)
+	}
+	return result, nil
+}
+
+func (m *mockTagQuerier) SearchTags(_ context.Context, arg tagsdb.SearchTagsParams) ([]tagsdb.Tag, error) {
+	var result []tagsdb.Tag
+	for _, t := range m.tags {
+		if arg.OwnerID.Valid && t.OwnerID != arg.OwnerID.Int64 {
+			continue
+		}
+		if arg.SubjectID.Valid && t.SubjectID != arg.SubjectID.Int64 {
+			continue
+		}
+		if arg.Purpose.Valid && t.Purpose != arg.Purpose.String {
+			continue
+		}
+		if arg.Value.Valid && t.Value != arg.Value.String {
+			continue
+		}
+		result = append(result, t)
+	}
+	return result, nil
+}
+
+func (m *mockTagQuerier) UpdateTagColor(_ context.Context, arg tagsdb.UpdateTagColorParams) (tagsdb.Tag, error) {
+	if m.updateErr != nil {
+		return tagsdb.Tag{}, m.updateErr
+	}
+	t, ok := m.tags[arg.EntityID]
+	if !ok {
+		return tagsdb.Tag{}, pgx.ErrNoRows
+	}
+	t.Color = arg.Color
+	t.UpdatedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	m.tags[arg.EntityID] = t
+	// update tagsByUUID too
+	if u, ok2 := m.entityUUID[arg.EntityID]; ok2 {
+		m.tagsByUUID[u] = t
+	}
+	return t, nil
+}
+
+var _ tagsdb.Querier = (*mockTagQuerier)(nil)
