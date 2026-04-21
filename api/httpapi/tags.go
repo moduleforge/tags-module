@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 
@@ -176,9 +177,10 @@ func (h *handlers) handleGetTag(w http.ResponseWriter, r *http.Request) {
 
 // updateTagRequest is the strict body for PUT /tags/{uuid}.
 // Only the "color" key is accepted; any other key causes a 400 via
-// DisallowUnknownFields.
+// DisallowUnknownFields. Color is a json.RawMessage so we can distinguish
+// absent (→ 400) from null (→ clear) from a string value (→ set).
 type updateTagRequest struct {
-	Color *string `json:"color"`
+	Color json.RawMessage `json:"color"`
 }
 
 // handlePutTag handles PUT /tags/{uuid}.
@@ -204,12 +206,24 @@ func (h *handlers) handlePutTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Color == nil {
-		jsonErr(w, http.StatusBadRequest, "bad_request", "color is required")
+	// Absent color field → 400.
+	if len(req.Color) == 0 {
+		jsonErr(w, http.StatusBadRequest, "bad_request", "color field is required in body")
 		return
 	}
 
-	in := service.UpdateTagInput{Color: req.Color}
+	// Determine whether color is null (clear) or a string (set).
+	var colorValue *string
+	if !bytes.Equal(bytes.TrimSpace(req.Color), []byte("null")) {
+		var s string
+		if err := json.Unmarshal(req.Color, &s); err != nil {
+			jsonErr(w, http.StatusBadRequest, "bad_request", "color must be a string or null")
+			return
+		}
+		colorValue = &s
+	}
+
+	in := service.UpdateTagInput{Color: colorValue}
 
 	tag, err := h.d.Services.Tag.UpdateByUUID(
 		r.Context(),

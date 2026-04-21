@@ -256,11 +256,11 @@ func TestHandlePutTag_400_UnknownKey(t *testing.T) {
 	}
 }
 
-func TestHandlePutTag_400_NilColor(t *testing.T) {
+func TestHandlePutTag_400_AbsentColor(t *testing.T) {
 	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	router := NewRouter(buildTestDeps(ext, nil))
 
-	// Empty object: color key absent — must be 400, not 200.
+	// Empty object: color key absent — must be 400.
 	body, _ := json.Marshal(map[string]any{})
 	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(), bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -272,19 +272,29 @@ func TestHandlePutTag_400_NilColor(t *testing.T) {
 	}
 }
 
-func TestHandlePutTag_400_ExplicitNullColor(t *testing.T) {
+func TestHandlePutTag_200_NullColorClears(t *testing.T) {
+	tagUUID := uuid.New()
 	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
-	router := NewRouter(buildTestDeps(ext, nil))
+	// Service returns a tag with no color — confirming clear was applied.
+	svc := &fakeTagService{tag: service.Tag{
+		EntityUUID:  tagUUID,
+		OwnerUUID:   uuid.New(),
+		SubjectUUID: uuid.New(),
+		Purpose:     "p",
+		Value:       "v",
+		Color:       nil,
+	}}
+	router := NewRouter(buildTestDeps(ext, svc))
 
-	// Explicit null: {"color": null} — must also be 400.
-	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(),
+	// Explicit null: {"color": null} — must be 200 (clear color).
+	req := httptest.NewRequest(http.MethodPut, "/tags/"+tagUUID.String(),
 		bytes.NewBufferString(`{"color":null}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status: got %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d; body: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }
 

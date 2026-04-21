@@ -329,12 +329,17 @@ components:
       required: [color]
       description: |
         Request body for PUT /tags/{uuid}. Only `color` is accepted; any other
-        key in the JSON body causes a 400 Bad Request.
+        key in the JSON body causes a 400 Bad Request. The `color` key must be
+        present; omitting it entirely also causes a 400. Send `null` to clear
+        an existing color (sets the DB column to NULL).
       properties:
         color:
           type: string
+          nullable: true
           pattern: '^#[0-9A-Fa-f]{8}$'
-          description: New RGBA color value in the format "#RRGGBBAA".
+          description: |
+            RGBA color in the format "#RRGGBBAA". Pass `null` to clear the
+            color. Omitting the field entirely is a 400 error.
           example: "#00FF00FF"
 
     TagListResponse:
