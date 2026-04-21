@@ -51,8 +51,11 @@ func (h *handlers) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
 	var req createTagRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := dec.Decode(&req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
@@ -198,6 +201,11 @@ func (h *handlers) handlePutTag(w http.ResponseWriter, r *http.Request) {
 	var req updateTagRequest
 	if err := dec.Decode(&req); err != nil {
 		jsonErr(w, http.StatusBadRequest, "bad_request", "only 'color' is accepted in the request body")
+		return
+	}
+
+	if req.Color == nil {
+		jsonErr(w, http.StatusBadRequest, "bad_request", "color is required")
 		return
 	}
 

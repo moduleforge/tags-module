@@ -97,6 +97,26 @@ func TestHandleCreateTag_400_BadColorFromService(t *testing.T) {
 	}
 }
 
+func TestHandleCreateTag_400_UnknownField(t *testing.T) {
+	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
+	router := NewRouter(buildTestDeps(ext, nil))
+
+	body, _ := json.Marshal(map[string]any{
+		"subject": uuid.New().String(),
+		"purpose": "label",
+		"value":   "urgent",
+		"owner":   uuid.New().String(), // unknown field; should be rejected
+	})
+	req := httptest.NewRequest(http.MethodPost, "/tags", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
 // --- GET /tags ---
 
 func TestHandleSearchTags_400_NoFilter(t *testing.T) {
@@ -233,6 +253,38 @@ func TestHandlePutTag_400_UnknownKey(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status: got %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandlePutTag_400_NilColor(t *testing.T) {
+	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
+	router := NewRouter(buildTestDeps(ext, nil))
+
+	// Empty object: color key absent — must be 400, not 200.
+	body, _ := json.Marshal(map[string]any{})
+	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(), bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestHandlePutTag_400_ExplicitNullColor(t *testing.T) {
+	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
+	router := NewRouter(buildTestDeps(ext, nil))
+
+	// Explicit null: {"color": null} — must also be 400.
+	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(),
+		bytes.NewBufferString(`{"color":null}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status: got %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
 
