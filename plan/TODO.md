@@ -44,13 +44,13 @@ Status: `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
   - [x] 5.6 `make link-tags` (root Makefile target) publishes tags-module/gui via yalc and adds into users-module/gui
   - [ ] 5.7 Sanity: a users-module integration test creates a tag via HTTP, reads it back, deletes it — **skipped; no DB-backed integration harness in users-module. See report.5.5.**
 
-- [ ] **Phase 6 — Verification + cleanup** (depends on: all)
-  - [ ] 6.1 `make test` green across every sub-project
-  - [ ] 6.2 `make dev.start` smoke (manual — hand to user)
-  - [ ] 6.3 `atlas migrate status` shows 0000–00NN, 0100–01NN, 0200–02NN in order
-  - [ ] 6.4 grep sanity: no `tags` tables in core-module or users-module/model
-  - [ ] 6.5 Audit log entries present for create/update/delete (manual — hand to user)
-  - [ ] 6.6 Update users-module summary + root README noting tags-module dependency
+- [~] **Phase 6 — Verification + cleanup** (depends on: all) — automated items done; manual items pending user
+  - [x] 6.1 `make test` green across every sub-project
+  - [ ] 6.2 `make dev.start` smoke — **manual, pending user**
+  - [ ] 6.3 `atlas migrate status` shows 0000–00NN, 0100–01NN, 0200–02NN in order — **manual, pending user (needs live DB)**
+  - [x] 6.4 grep sanity: no `tags` tables in core-module or users-module/model
+  - [ ] 6.5 Audit log entries present for create/update/delete — **manual, pending user (needs live DB)**
+  - [x] 6.6 Update users-module summary + root README noting tags-module dependency
 
 ## Reports
 
