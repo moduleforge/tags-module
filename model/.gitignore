@@ -4,3 +4,6 @@
 
 # Go tool output
 /tmp/
+
+# Build-time composed schema (rebuilt by `make compose`)
+/schema/
