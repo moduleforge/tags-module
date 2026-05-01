@@ -1,0 +1,207 @@
+{
+  "about": {
+    "homepage": "https://www.ladle.dev",
+    "github": "https://github.com/tajo/ladle",
+    "version": 1
+  },
+  "stories": {
+    "tag-chip--color-editable": {
+      "name": "Color editable",
+      "levels": [
+        "Tag chip"
+      ],
+      "locStart": 45,
+      "locEnd": 45,
+      "filePath": "src/TagChip.stories.tsx",
+      "namedExport": "ColorEditable",
+      "meta": {}
+    },
+    "tag-chip--colored": {
+      "name": "Colored",
+      "levels": [
+        "Tag chip"
+      ],
+      "locStart": 23,
+      "locEnd": 23,
+      "filePath": "src/TagChip.stories.tsx",
+      "namedExport": "Colored",
+      "meta": {}
+    },
+    "tag-chip--colored-light": {
+      "name": "Colored light",
+      "levels": [
+        "Tag chip"
+      ],
+      "locStart": 28,
+      "locEnd": 28,
+      "filePath": "src/TagChip.stories.tsx",
+      "namedExport": "ColoredLight",
+      "meta": {}
+    },
+    "tag-chip--default": {
+      "name": "Default",
+      "levels": [
+        "Tag chip"
+      ],
+      "locStart": 18,
+      "locEnd": 18,
+      "filePath": "src/TagChip.stories.tsx",
+      "namedExport": "Default",
+      "meta": {}
+    },
+    "tag-chip--fully-interactive": {
+      "name": "Fully interactive",
+      "levels": [
+        "Tag chip"
+      ],
+      "locStart": 51,
+      "locEnd": 51,
+      "filePath": "src/TagChip.stories.tsx",
+      "namedExport": "FullyInteractive",
+      "meta": {}
+    },
+    "tag-chip--no-purpose": {
+      "name": "No purpose",
+      "levels": [
+        "Tag chip"
+      ],
+      "locStart": 33,
+      "locEnd": 33,
+      "filePath": "src/TagChip.stories.tsx",
+      "namedExport": "NoPurpose",
+      "meta": {}
+    },
+    "tag-chip--removable": {
+      "name": "Removable",
+      "levels": [
+        "Tag chip"
+      ],
+      "locStart": 39,
+      "locEnd": 39,
+      "filePath": "src/TagChip.stories.tsx",
+      "namedExport": "Removable",
+      "meta": {}
+    },
+    "tag-editor--empty": {
+      "name": "Empty",
+      "levels": [
+        "Tag editor"
+      ],
+      "locStart": 33,
+      "locEnd": 33,
+      "filePath": "src/TagEditor.stories.tsx",
+      "namedExport": "Empty",
+      "meta": {}
+    },
+    "tag-editor--fixed-purpose": {
+      "name": "Fixed purpose",
+      "levels": [
+        "Tag editor"
+      ],
+      "locStart": 45,
+      "locEnd": 45,
+      "filePath": "src/TagEditor.stories.tsx",
+      "namedExport": "FixedPurpose",
+      "meta": {}
+    },
+    "tag-editor--no-purpose-display": {
+      "name": "No purpose display",
+      "levels": [
+        "Tag editor"
+      ],
+      "locStart": 62,
+      "locEnd": 62,
+      "filePath": "src/TagEditor.stories.tsx",
+      "namedExport": "NoPurposeDisplay",
+      "meta": {}
+    },
+    "tag-editor--select-purpose": {
+      "name": "Select purpose",
+      "levels": [
+        "Tag editor"
+      ],
+      "locStart": 52,
+      "locEnd": 52,
+      "filePath": "src/TagEditor.stories.tsx",
+      "namedExport": "SelectPurpose",
+      "meta": {}
+    },
+    "tag-editor--with-existing-tags": {
+      "name": "With existing tags",
+      "levels": [
+        "Tag editor"
+      ],
+      "locStart": 36,
+      "locEnd": 36,
+      "filePath": "src/TagEditor.stories.tsx",
+      "namedExport": "WithExistingTags",
+      "meta": {}
+    },
+    "tag-list--empty": {
+      "name": "Empty",
+      "levels": [
+        "Tag list"
+      ],
+      "locStart": 31,
+      "locEnd": 31,
+      "filePath": "src/TagList.stories.tsx",
+      "namedExport": "Empty",
+      "meta": {}
+    },
+    "tag-list--few": {
+      "name": "Few",
+      "levels": [
+        "Tag list"
+      ],
+      "locStart": 34,
+      "locEnd": 34,
+      "filePath": "src/TagList.stories.tsx",
+      "namedExport": "Few",
+      "meta": {}
+    },
+    "tag-list--filtered-by-purpose": {
+      "name": "Filtered by purpose",
+      "levels": [
+        "Tag list"
+      ],
+      "locStart": 58,
+      "locEnd": 58,
+      "filePath": "src/TagList.stories.tsx",
+      "namedExport": "FilteredByPurpose",
+      "meta": {}
+    },
+    "tag-list--load-error": {
+      "name": "Load error",
+      "levels": [
+        "Tag list"
+      ],
+      "locStart": 79,
+      "locEnd": 79,
+      "filePath": "src/TagList.stories.tsx",
+      "namedExport": "LoadError",
+      "meta": {}
+    },
+    "tag-list--many": {
+      "name": "Many",
+      "levels": [
+        "Tag list"
+      ],
+      "locStart": 43,
+      "locEnd": 43,
+      "filePath": "src/TagList.stories.tsx",
+      "namedExport": "Many",
+      "meta": {}
+    },
+    "tag-list--no-purpose-display": {
+      "name": "No purpose display",
+      "levels": [
+        "Tag list"
+      ],
+      "locStart": 69,
+      "locEnd": 69,
+      "filePath": "src/TagList.stories.tsx",
+      "namedExport": "NoPurposeDisplay",
+      "meta": {}
+    }
+  }
+}
