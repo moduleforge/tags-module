@@ -1,3 +1,5 @@
+-- +goose Up
+
 -- tags is the single-subject tag subtype table. Identity and lifecycle columns
 -- (uuid, archived_at) live on the parent entities row, not here.
 
@@ -21,6 +23,7 @@ CREATE INDEX tags_subject_id_idx ON tags (subject_id);
 
 -- Enforce that only entities whose fundamental type descends from 'tag'
 -- may be inserted into this table.
+-- +goose StatementBegin
 CREATE FUNCTION tags_check_type() RETURNS TRIGGER AS $$
 DECLARE
   v_type_id BIGINT;
@@ -35,12 +38,14 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 CREATE TRIGGER tags_type_check
   BEFORE INSERT ON tags
   FOR EACH ROW EXECUTE FUNCTION tags_check_type();
 
 -- Enforce that owner_id, subject_id, purpose, and value are immutable after insert.
+-- +goose StatementBegin
 CREATE FUNCTION tags_reject_immutable_changes() RETURNS TRIGGER AS $$
 BEGIN
   IF OLD.owner_id IS DISTINCT FROM NEW.owner_id THEN
@@ -58,6 +63,7 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 CREATE TRIGGER tags_reject_immutable_changes
   BEFORE UPDATE ON tags

@@ -1,13 +1,10 @@
-# model/ sub-project Makefile — SQL migrations (Atlas) + Go query generation (sqlc).
+# model/ sub-project Makefile — SQL migrations (goose) + Go query generation (sqlc).
 
 DATABASE_URL ?= postgresql://tags:tags@localhost:5432/tags?sslmode=disable
 
 # Locate core-model migrations via go list, falling back to a relative path
 # for fresh clones before go work sync has run.
 CORE_DIR := $(shell go list -m -f '{{.Dir}}' github.com/moduleforge/core-model 2>/dev/null || echo ../../core-module/model)
-
-# Set by preflight if sqlc is available.
-SQLC ?=
 
 .DEFAULT_GOAL := build
 
@@ -21,12 +18,10 @@ compose: ## Assemble composed migrations dir from core-model + tags-module
 	@mkdir -p schema/migrations
 	@cp $(CORE_DIR)/migrations/*.sql schema/migrations/
 	@cp migrations/*.sql schema/migrations/
-	@atlas migrate hash --dir file://schema/migrations > /dev/null
 
 build: compose
 migrate.up: compose
 migrate.status: compose
-migrate.hash: compose
 
 # ---------------------------------------------------------------------------
 # Preflight — verify tools, set vars
@@ -44,6 +39,10 @@ preflight: ## Check required tools for model
 		echo "ERROR: sqlc is not installed and no generated code exists in db/."; \
 		echo "  Install: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0"; \
 		exit 1; \
+	fi
+	@if ! command -v goose >/dev/null 2>&1; then \
+		echo "  model preflight: goose not found"; \
+		echo "  Install: go install github.com/pressly/goose/v3/cmd/goose@latest"; \
 	fi
 
 # ---------------------------------------------------------------------------
@@ -67,19 +66,15 @@ build: preflight ## Generate Go code from queries
 .PHONY: migrate.new
 migrate.new: ## Create a new migration file (usage: make migrate.new NAME=foo)
 	@test -n "$(NAME)" || (echo "ERROR: NAME is required (e.g. make migrate.new NAME=create_tags)" && exit 1)
-	atlas migrate new $(NAME) --dir "file://migrations"
+	goose -dir migrations -s create $(NAME) sql
 
 .PHONY: migrate.up
 migrate.up: ## Apply pending migrations to DATABASE_URL
-	atlas migrate apply --dir "file://migrations" --url "$(DATABASE_URL)"
+	goose -dir migrations postgres "$(DATABASE_URL)" up
 
 .PHONY: migrate.status
 migrate.status: ## Show migration status
-	atlas migrate status --dir "file://migrations" --url "$(DATABASE_URL)"
-
-.PHONY: migrate.hash
-migrate.hash: ## Recalculate migration directory integrity hash
-	atlas migrate hash --dir "file://migrations"
+	goose -dir migrations postgres "$(DATABASE_URL)" status
 
 # ---------------------------------------------------------------------------
 # Code generation
@@ -94,8 +89,8 @@ gen: ## Generate Go packages from sqlc queries
 # ---------------------------------------------------------------------------
 
 .PHONY: verify
-verify: ## Validate migrations (atlas) + compile-check queries (sqlc)
-	atlas migrate validate --dir "file://migrations" --dev-url "$(DATABASE_URL)"
+verify: ## Validate migration file format + compile-check queries (sqlc)
+	goose -dir migrations validate
 	sqlc compile
 
 # ---------------------------------------------------------------------------
@@ -110,12 +105,12 @@ test.unit: ## Run unit tests
 	@echo "model: no unit tests (generated code)"
 
 .PHONY: test.integration
-test.integration: ## Run integration tests (migration apply + verify against live DB)
-	atlas migrate apply --dir "file://migrations" --url "$(DATABASE_URL)"
+test.integration: ## Run integration tests (migration apply against live DB)
+	goose -dir migrations postgres "$(DATABASE_URL)" up
 
 .PHONY: lint
-lint: ## Lint migrations
-	atlas migrate lint --dir "file://migrations" --dev-url "$(DATABASE_URL)" --latest 1
+lint: ## Apply migrations to an ephemeral shadow Postgres (replaces atlas migrate lint)
+	@./scripts/shadow-db-lint.sh migrations
 
 .PHONY: lint-fix
 lint-fix: ## Lint-fix (no-op for model)
