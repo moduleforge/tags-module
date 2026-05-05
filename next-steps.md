@@ -33,6 +33,11 @@ All 6 planned phases (bootstrap → model → API → GUI → wire into users-mo
 - **N+1 in `Search` / `ListBySubject`.** `tags-module/api/service/tag.go` issues a `GetEntityByID` per row to resolve owner/subject UUIDs. Acceptable for niche-app scale; factor a shared helper if call sites multiply.
 - **`display.Registry.Render` unused at runtime.** `coreservice.RegisterBuiltins` is now wired in users-module main.go (first consumer), but no production code path currently calls `Render`. Becomes load-bearing if/when a UI surface needs server-rendered entity display names.
 
+## Cross-cutting framework — deferred from Phase 5 review
+
+- **`actor coreservice.Principal` parameter on read methods** — currently retained for inline ownership filtering. Removing requires either an `IsAdmin` opctx key or moving ownership checks into the Authorizer. Defer.
+- **`ObserveAfterCommit` calls pass `nil, nil`** (code-reviewer L2) — Update / Delete post-commit observers receive no useful data. Future cache-invalidation or search-index-sync observers would prefer at least the `after` snapshot. Pass `after` (or recompute it from the in-tx data) when convenient.
+
 ## Component workbench (Ladle)
 
 See `stories-next.md` at this module's root for deferred Ladle / Storybook follow-ups (story coverage gaps including `TagChip` truncation + `TagEditor` multi-purpose select, mock-vs-real client decorator, Storybook migration path, visual regression).
