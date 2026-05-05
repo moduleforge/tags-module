@@ -219,8 +219,10 @@ func (s *TagService) GetByUUID(
 	actor coreservice.Principal,
 	entityUUID uuid.UUID,
 ) (Tag, error) {
-	// 1. Authorize.
-	if err := s.az.Authorize(ctx, "read", TagEntity{}); err != nil {
+	// 1. Authorize against the actor's own entity ID so the Authorizer's
+	// "non-admin can access only own data" rule passes. Inline ownership
+	// filtering below further restricts what the actor actually sees.
+	if err := s.az.Authorize(ctx, "read", TagEntity{ID: &actor.EntityID}); err != nil {
 		return Tag{}, err
 	}
 
@@ -258,8 +260,9 @@ func (s *TagService) Search(
 	actor coreservice.Principal,
 	filter SearchTagsFilter,
 ) ([]Tag, error) {
-	// 1. Authorize.
-	if err := s.az.Authorize(ctx, "search", TagEntity{}); err != nil {
+	// 1. Authorize against the actor's own entity ID so non-admins pass the
+	// Authorizer gate. Post-filtering below restricts results to owned tags.
+	if err := s.az.Authorize(ctx, "search", TagEntity{ID: &actor.EntityID}); err != nil {
 		return nil, err
 	}
 
@@ -339,17 +342,21 @@ func (s *TagService) ListBySubject(
 	subjectUUID uuid.UUID,
 	purposeFilter *string,
 ) ([]Tag, error) {
-	// 1. Authorize.
-	if err := s.az.Authorize(ctx, "list", TagEntity{}); err != nil {
-		return nil, err
-	}
-
+	// 1. Resolve the subject entity first so we can authorize against its ID.
+	// Subject owners (the entity whose tags they are) and admins can list;
+	// others are denied at the gate before any data is returned.
 	subjectEntity, err := coreQ.GetEntityByUUID(ctx, subjectUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("tag.ListBySubject resolve subject: %w", err)
+	}
+
+	// Authorize against the subject entity ID: subject owners plus admins pass;
+	// unrelated actors are denied before any tag rows are read.
+	if err := s.az.Authorize(ctx, "list", TagEntity{ID: &subjectEntity.ID}); err != nil {
+		return nil, err
 	}
 
 	purposeParam := pgtype.Text{}
