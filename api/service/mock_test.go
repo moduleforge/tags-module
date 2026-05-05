@@ -6,20 +6,89 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/moduleforge/core-api/entity"
+	"github.com/moduleforge/core-api/txhelper"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
 )
 
-// --- mock audit.Writer ---
+// --- stub authz.Authorizer ---
 
-type mockAuditWriter struct {
-	calls []auditCall
-	err   error
+// allowAllAuthz is a stub Authorizer that always permits every operation.
+type allowAllAuthz struct{}
+
+func (allowAllAuthz) Authorize(_ context.Context, _ string, _ entity.Entity) error {
+	return nil
 }
 
-type auditCall struct {
+// denyAllAuthz is a stub Authorizer that always rejects every operation.
+type denyAllAuthz struct{ err error }
+
+func (d denyAllAuthz) Authorize(_ context.Context, _ string, _ entity.Entity) error {
+	return d.err
+}
+
+// --- fake DB (txhelper.DB) and Tx ---
+
+// fakeDB implements txhelper.DB. It returns the configured tx on BeginTx.
+type fakeDB struct {
+	tx  pgx.Tx
+	err error
+}
+
+func (d *fakeDB) BeginTx(_ context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
+	return d.tx, d.err
+}
+
+var _ txhelper.DB = (*fakeDB)(nil)
+
+// fakeTx is a minimal pgx.Tx that satisfies the interface for service tests.
+// It records whether Commit and Rollback were called.
+type fakeTx struct {
+	commitErr   error
+	rollbackErr error
+	committed   bool
+	rolledBack  bool
+}
+
+func (t *fakeTx) Begin(_ context.Context) (pgx.Tx, error) { return nil, nil }
+func (t *fakeTx) Commit(_ context.Context) error {
+	t.committed = true
+	return t.commitErr
+}
+func (t *fakeTx) Rollback(_ context.Context) error {
+	t.rolledBack = true
+	return t.rollbackErr
+}
+func (t *fakeTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
+	return 0, nil
+}
+func (t *fakeTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
+func (t *fakeTx) LargeObjects() pgx.LargeObjects                              { return pgx.LargeObjects{} }
+func (t *fakeTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
+	return nil, nil
+}
+func (t *fakeTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+func (t *fakeTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) { return nil, nil }
+func (t *fakeTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row        { return nil }
+func (t *fakeTx) Conn() *pgx.Conn                                                { return nil }
+
+var _ pgx.Tx = (*fakeTx)(nil)
+
+// newFakeDB returns a fakeDB that commits/rolls back successfully.
+func newFakeDB() *fakeDB {
+	return &fakeDB{tx: &fakeTx{}}
+}
+
+// --- stub observer (recording) ---
+
+// observeCall records a single Observe or ObserveAfterCommit invocation.
+type observeCall struct {
 	op             string
 	resource       string
 	targetEntityID *int64
@@ -27,15 +96,33 @@ type auditCall struct {
 	after          any
 }
 
-func (m *mockAuditWriter) Write(_ context.Context, op, resource string, targetEntityID *int64, before, after any) error {
-	m.calls = append(m.calls, auditCall{
+// recordingObserver records Observe and ObserveAfterCommit calls.
+type recordingObserver struct {
+	observeCalls            []observeCall
+	observeAfterCommitCalls []observeCall
+	observeErr              error
+}
+
+func (o *recordingObserver) Observe(_ context.Context, _ pgx.Tx, op, resource string, targetEntityID *int64, before, after any) error {
+	o.observeCalls = append(o.observeCalls, observeCall{
 		op:             op,
 		resource:       resource,
 		targetEntityID: targetEntityID,
 		before:         before,
 		after:          after,
 	})
-	return m.err
+	return o.observeErr
+}
+
+func (o *recordingObserver) ObserveAfterCommit(_ context.Context, op, resource string, targetEntityID *int64, before, after any) error {
+	o.observeAfterCommitCalls = append(o.observeAfterCommitCalls, observeCall{
+		op:             op,
+		resource:       resource,
+		targetEntityID: targetEntityID,
+		before:         before,
+		after:          after,
+	})
+	return nil
 }
 
 // --- mock coredb.Querier ---
@@ -224,7 +311,7 @@ var _ coredb.Querier = (*mockCoreQuerier)(nil)
 
 type mockTagQuerier struct {
 	tags       map[int64]tagsdb.Tag     // by entity_id
-	tagsByUUID map[uuid.UUID]tagsdb.Tag // by entity uuid (requires entity uuid mapping)
+	tagsByUUID map[uuid.UUID]tagsdb.Tag // by entity uuid
 	entityUUID map[int64]uuid.UUID      // entity_id → uuid
 	uuidEntity map[uuid.UUID]int64      // uuid → entity_id
 	nextID     int64

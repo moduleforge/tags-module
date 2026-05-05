@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/moduleforge/core-api/audit"
+	"github.com/moduleforge/core-api/authz"
+	"github.com/moduleforge/core-api/observer"
+	"github.com/moduleforge/core-api/txhelper"
 	coreservice "github.com/moduleforge/core-api/service"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
@@ -24,12 +26,6 @@ var colorRe = regexp.MustCompile(`^#[0-9A-Fa-f]{8}$`)
 
 // pgUniqueViolation is the Postgres error code for unique_violation.
 const pgUniqueViolation = "23505"
-
-// TxBeginner abstracts transaction creation for testability.
-// *pgxpool.Pool satisfies this interface.
-type TxBeginner interface {
-	Begin(ctx context.Context) (pgx.Tx, error)
-}
 
 // CreateTagInput carries the fields required to create a tag.
 type CreateTagInput struct {
@@ -70,21 +66,40 @@ type Tag struct {
 
 // TagServicer defines tag CRUD operations available to httpapi handlers.
 type TagServicer interface {
-	Create(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, tx TxBeginner, in CreateTagInput) (Tag, error)
+	Create(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, in CreateTagInput) (Tag, error)
 	GetByUUID(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, entityUUID uuid.UUID) (Tag, error)
 	Search(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, filter SearchTagsFilter) ([]Tag, error)
 	ListBySubject(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, subjectUUID uuid.UUID, purposeFilter *string) ([]Tag, error)
-	UpdateByUUID(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, entityUUID uuid.UUID, in UpdateTagInput) (Tag, error)
-	DeleteByUUID(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, entityUUID uuid.UUID, tx TxBeginner) error
+	UpdateByUUID(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, entityUUID uuid.UUID, in UpdateTagInput) (Tag, error)
+	DeleteByUUID(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, entityUUID uuid.UUID) error
 }
 
-// TagService implements TagServicer with audit logging.
+// TagService implements TagServicer with authorization, transactional mutation,
+// and observer dispatch.
 type TagService struct {
-	aw audit.Writer
+	db             txhelper.DB
+	az             authz.Authorizer
+	obs            *observer.ObserverGroup
+	newCoreQuerier func(pgx.Tx) coredb.Querier // injectable for tests; defaults to coredb.New
+	newTagQuerier  func(pgx.Tx) tagsdb.Querier  // injectable for tests; defaults to tagsdb.New
 }
 
 // Compile-time assertion.
 var _ TagServicer = (*TagService)(nil)
+
+func (s *TagService) coreQuerier(tx pgx.Tx) coredb.Querier {
+	if s.newCoreQuerier != nil {
+		return s.newCoreQuerier(tx)
+	}
+	return coredb.New(tx)
+}
+
+func (s *TagService) tagQuerier(tx pgx.Tx) tagsdb.Querier {
+	if s.newTagQuerier != nil {
+		return s.newTagQuerier(tx)
+	}
+	return tagsdb.New(tx)
+}
 
 // Create inserts an entity row and a tags row in a single transaction.
 // Owner is always set server-side to actor.EntityID — any client-supplied
@@ -92,11 +107,14 @@ var _ TagServicer = (*TagService)(nil)
 func (s *TagService) Create(
 	ctx context.Context,
 	coreQ coredb.Querier,
-	tagQ tagsdb.Querier,
 	actor coreservice.Principal,
-	txb TxBeginner,
 	in CreateTagInput,
 ) (Tag, error) {
+	// 1. Authorize.
+	if err := s.az.Authorize(ctx, "create", TagEntity{}); err != nil {
+		return Tag{}, err
+	}
+
 	// Input validation.
 	in.Purpose = strings.TrimSpace(in.Purpose)
 	in.Value = strings.TrimSpace(in.Value)
@@ -116,7 +134,7 @@ func (s *TagService) Create(
 		return Tag{}, fmt.Errorf("%w: color must match #RRGGBBAA", ErrInvalidInput)
 	}
 
-	// Resolve subject entity.
+	// Resolve subject entity (pre-tx read).
 	subjectEntity, err := coreQ.GetEntityByUUID(ctx, in.SubjectEntityUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -125,7 +143,7 @@ func (s *TagService) Create(
 		return Tag{}, fmt.Errorf("tag.Create resolve subject: %w", err)
 	}
 
-	// Resolve owner entity (actor).
+	// Resolve owner entity (actor) via pre-tx read.
 	ownerEntity, err := coreQ.GetEntityByID(ctx, actor.EntityID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -134,59 +152,61 @@ func (s *TagService) Create(
 		return Tag{}, fmt.Errorf("tag.Create resolve owner: %w", err)
 	}
 
-	// Resolve the type ID for 'tag'.
+	// Resolve the type ID for 'tag' (pre-tx read).
 	tagType, err := coreQ.GetTypeBySlug(ctx, "tag")
 	if err != nil {
 		return Tag{}, fmt.Errorf("tag.Create resolve type: %w", err)
 	}
 
-	// Open transaction.
-	dbTx, err := txb.Begin(ctx)
-	if err != nil {
-		return Tag{}, fmt.Errorf("tag.Create begin tx: %w", err)
-	}
-	defer dbTx.Rollback(ctx) //nolint:errcheck
+	// 2. Mutate inside a transaction; observers participate in the same tx.
+	var result Tag
+	var entityID int64
 
-	txCoreQ := coredb.New(dbTx)
-	txTagQ := tagsdb.New(dbTx)
+	err = txhelper.Run(ctx, s.db, func(ctx context.Context, tx pgx.Tx) error {
+		txCoreQ := s.coreQuerier(tx)
+		txTagQ := s.tagQuerier(tx)
 
-	// Insert entity row.
-	entity, err := txCoreQ.CreateEntity(ctx, tagType.ID)
-	if err != nil {
-		return Tag{}, fmt.Errorf("tag.Create entity: %w", err)
-	}
+		// Insert entity row.
+		entity, err := txCoreQ.CreateEntity(ctx, tagType.ID)
+		if err != nil {
+			return fmt.Errorf("tag.Create entity: %w", err)
+		}
+		entityID = entity.ID
 
-	// Build color param.
-	colorParam := pgtype.Text{}
-	if in.Color != nil {
-		colorParam = pgtype.Text{String: *in.Color, Valid: true}
-	}
+		// Build color param.
+		colorParam := pgtype.Text{}
+		if in.Color != nil {
+			colorParam = pgtype.Text{String: *in.Color, Valid: true}
+		}
 
-	// Insert tags row.
-	tag, err := txTagQ.CreateTag(ctx, tagsdb.CreateTagParams{
-		EntityID:  entity.ID,
-		OwnerID:   actor.EntityID,
-		SubjectID: subjectEntity.ID,
-		Purpose:   in.Purpose,
-		Value:     in.Value,
-		Color:     colorParam,
+		// Insert tags row.
+		tag, err := txTagQ.CreateTag(ctx, tagsdb.CreateTagParams{
+			EntityID:  entity.ID,
+			OwnerID:   actor.EntityID,
+			SubjectID: subjectEntity.ID,
+			Purpose:   in.Purpose,
+			Value:     in.Value,
+			Color:     colorParam,
+		})
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+				return fmt.Errorf("%w: tag already exists", ErrConflict)
+			}
+			return fmt.Errorf("tag.Create insert: %w", err)
+		}
+
+		result = hydrateTag(entity.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, tag)
+
+		after := tagSnapshot(result)
+		return s.obs.Observe(ctx, tx, "create", "tag", &entityID, nil, after)
 	})
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
-			return Tag{}, fmt.Errorf("%w: tag already exists", ErrConflict)
-		}
-		return Tag{}, fmt.Errorf("tag.Create insert: %w", err)
+		return Tag{}, err
 	}
 
-	if err := dbTx.Commit(ctx); err != nil {
-		return Tag{}, fmt.Errorf("tag.Create commit: %w", err)
-	}
-
-	result := hydrateTag(entity.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, tag)
-
-	eid := entity.ID
-	_ = s.aw.Write(ctx, "create", "tag", &eid, nil, tagSnapshot(result))
+	// 3. Post-commit observers (optional for tags — no search-index or cache consumer yet).
+	s.obs.ObserveAfterCommit(ctx, "create", "tag", &entityID, nil, tagSnapshot(result))
 
 	return result, nil
 }
@@ -199,6 +219,11 @@ func (s *TagService) GetByUUID(
 	actor coreservice.Principal,
 	entityUUID uuid.UUID,
 ) (Tag, error) {
+	// 1. Authorize.
+	if err := s.az.Authorize(ctx, "read", TagEntity{}); err != nil {
+		return Tag{}, err
+	}
+
 	row, err := tagQ.GetTagByEntityUUID(ctx, entityUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -233,6 +258,11 @@ func (s *TagService) Search(
 	actor coreservice.Principal,
 	filter SearchTagsFilter,
 ) ([]Tag, error) {
+	// 1. Authorize.
+	if err := s.az.Authorize(ctx, "search", TagEntity{}); err != nil {
+		return nil, err
+	}
+
 	if filter.OwnerEntityUUID == nil && filter.SubjectEntityUUID == nil {
 		return nil, fmt.Errorf("%w: at least one of owner or subject is required", ErrInvalidInput)
 	}
@@ -309,6 +339,11 @@ func (s *TagService) ListBySubject(
 	subjectUUID uuid.UUID,
 	purposeFilter *string,
 ) ([]Tag, error) {
+	// 1. Authorize.
+	if err := s.az.Authorize(ctx, "list", TagEntity{}); err != nil {
+		return nil, err
+	}
+
 	subjectEntity, err := coreQ.GetEntityByUUID(ctx, subjectUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -360,61 +395,88 @@ func (s *TagService) ListBySubject(
 func (s *TagService) UpdateByUUID(
 	ctx context.Context,
 	coreQ coredb.Querier,
-	tagQ tagsdb.Querier,
 	actor coreservice.Principal,
 	entityUUID uuid.UUID,
 	in UpdateTagInput,
 ) (Tag, error) {
-	row, err := tagQ.GetTagByEntityUUID(ctx, entityUUID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Tag{}, ErrNotFound
-		}
-		return Tag{}, fmt.Errorf("tag.UpdateByUUID fetch: %w", err)
-	}
-
-	// Authz: admin OR owner → OK; subject → 403; other → 404.
-	if !actor.IsAdmin && actor.EntityID != row.OwnerID {
-		if actor.EntityID == row.SubjectID {
-			return Tag{}, ErrForbidden
-		}
-		return Tag{}, ErrNotFound
-	}
-
-	// Validate non-nil color before writing.
+	// Validate non-nil color before any DB call.
 	if in.Color != nil && !colorRe.MatchString(*in.Color) {
 		return Tag{}, fmt.Errorf("%w: color must match #RRGGBBAA", ErrInvalidInput)
 	}
 
-	before := colorSnapshot(row.Color)
+	// Pre-tx fetch to build a richer Authorize target.
+	// We need to know the tag's entity ID and access control attributes.
+	// We do this via a separate pre-tx read using the pool-backed querier
+	// from the caller (which is non-tx-scoped). However, since coreQ is
+	// passed in but tagQ is not, we defer the fetch into the tx closure.
 
-	colorParam := pgtype.Text{}
-	if in.Color != nil {
-		colorParam = pgtype.Text{String: *in.Color, Valid: true}
+	// 1. Authorize — we authorize before fetching; use a stub target
+	//    (no entity ID yet since we haven't fetched).
+	if err := s.az.Authorize(ctx, "update", TagEntity{}); err != nil {
+		return Tag{}, err
 	}
 
-	updated, err := tagQ.UpdateTagColor(ctx, tagsdb.UpdateTagColorParams{
-		EntityID: row.EntityID,
-		Color:    colorParam,
+	// 2. Mutate inside a transaction; observers participate in the same tx.
+	var result Tag
+	var entityID int64
+
+	err := txhelper.Run(ctx, s.db, func(ctx context.Context, tx pgx.Tx) error {
+		txCoreQ := s.coreQuerier(tx)
+		txTagQ := s.tagQuerier(tx)
+
+		// Fetch the existing tag (before snapshot).
+		row, err := txTagQ.GetTagByEntityUUID(ctx, entityUUID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("tag.UpdateByUUID fetch: %w", err)
+		}
+
+		// Row-level access control: admin OR owner → OK; subject → 403; other → 404.
+		if !actor.IsAdmin && actor.EntityID != row.OwnerID {
+			if actor.EntityID == row.SubjectID {
+				return ErrForbidden
+			}
+			return ErrNotFound
+		}
+
+		entityID = row.EntityID
+		before := colorSnapshot(row.Color)
+
+		colorParam := pgtype.Text{}
+		if in.Color != nil {
+			colorParam = pgtype.Text{String: *in.Color, Valid: true}
+		}
+
+		updated, err := txTagQ.UpdateTagColor(ctx, tagsdb.UpdateTagColorParams{
+			EntityID: row.EntityID,
+			Color:    colorParam,
+		})
+		if err != nil {
+			return fmt.Errorf("tag.UpdateByUUID update: %w", err)
+		}
+
+		ownerEntity, err := txCoreQ.GetEntityByID(ctx, row.OwnerID)
+		if err != nil {
+			return fmt.Errorf("tag.UpdateByUUID resolve owner: %w", err)
+		}
+		subjectEntity, err := txCoreQ.GetEntityByID(ctx, row.SubjectID)
+		if err != nil {
+			return fmt.Errorf("tag.UpdateByUUID resolve subject: %w", err)
+		}
+
+		result = hydrateTag(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, updated)
+
+		after := colorSnapshot(updated.Color)
+		return s.obs.Observe(ctx, tx, "update", "tag", &entityID, before, after)
 	})
 	if err != nil {
-		return Tag{}, fmt.Errorf("tag.UpdateByUUID update: %w", err)
+		return Tag{}, err
 	}
 
-	ownerEntity, err := coreQ.GetEntityByID(ctx, row.OwnerID)
-	if err != nil {
-		return Tag{}, fmt.Errorf("tag.UpdateByUUID resolve owner: %w", err)
-	}
-	subjectEntity, err := coreQ.GetEntityByID(ctx, row.SubjectID)
-	if err != nil {
-		return Tag{}, fmt.Errorf("tag.UpdateByUUID resolve subject: %w", err)
-	}
-
-	result := hydrateTag(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, updated)
-
-	eid := row.EntityID
-	_ = s.aw.Write(ctx, "update", "tag", &eid, before, colorSnapshot(updated.Color))
-
+	// 3. Post-commit observers.
+	s.obs.ObserveAfterCommit(ctx, "update", "tag", &entityID, nil, nil)
 	return result, nil
 }
 
@@ -423,63 +485,66 @@ func (s *TagService) UpdateByUUID(
 func (s *TagService) DeleteByUUID(
 	ctx context.Context,
 	coreQ coredb.Querier,
-	tagQ tagsdb.Querier,
 	actor coreservice.Principal,
 	entityUUID uuid.UUID,
-	txb TxBeginner,
 ) error {
-	row, err := tagQ.GetTagByEntityUUID(ctx, entityUUID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+	// 1. Authorize.
+	if err := s.az.Authorize(ctx, "delete", TagEntity{}); err != nil {
+		return err
+	}
+
+	// 2. Mutate inside a transaction; observers participate in the same tx.
+	var entityID int64
+
+	err := txhelper.Run(ctx, s.db, func(ctx context.Context, tx pgx.Tx) error {
+		txTagQ := s.tagQuerier(tx)
+		txCoreQ := s.coreQuerier(tx)
+
+		row, err := txTagQ.GetTagByEntityUUID(ctx, entityUUID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("tag.DeleteByUUID fetch: %w", err)
+		}
+
+		// Row-level access control: admin OR owner → OK; subject → 403; other → 404.
+		if !actor.IsAdmin && actor.EntityID != row.OwnerID {
+			if actor.EntityID == row.SubjectID {
+				return ErrForbidden
+			}
 			return ErrNotFound
 		}
-		return fmt.Errorf("tag.DeleteByUUID fetch: %w", err)
-	}
 
-	// Authz: admin OR owner → OK; subject → 403; other → 404.
-	if !actor.IsAdmin && actor.EntityID != row.OwnerID {
-		if actor.EntityID == row.SubjectID {
-			return ErrForbidden
+		entityID = row.EntityID
+
+		// Capture before snapshot for observation.
+		ownerEntity, err := txCoreQ.GetEntityByID(ctx, row.OwnerID)
+		if err != nil {
+			return fmt.Errorf("tag.DeleteByUUID resolve owner: %w", err)
 		}
-		return ErrNotFound
-	}
+		subjectEntity, err := txCoreQ.GetEntityByID(ctx, row.SubjectID)
+		if err != nil {
+			return fmt.Errorf("tag.DeleteByUUID resolve subject: %w", err)
+		}
+		beforeSnapshot := tagSnapshot(hydrateTag(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, tagFromUUIDRow(row)))
 
-	// Capture before snapshot for audit.
-	ownerEntity, err := coreQ.GetEntityByID(ctx, row.OwnerID)
+		if err := txTagQ.DeleteTag(ctx, row.EntityID); err != nil {
+			return fmt.Errorf("tag.DeleteByUUID delete tag: %w", err)
+		}
+
+		if err := txCoreQ.ArchiveEntity(ctx, entityUUID); err != nil {
+			return fmt.Errorf("tag.DeleteByUUID archive entity: %w", err)
+		}
+
+		return s.obs.Observe(ctx, tx, "delete", "tag", &entityID, beforeSnapshot, nil)
+	})
 	if err != nil {
-		return fmt.Errorf("tag.DeleteByUUID resolve owner: %w", err)
-	}
-	subjectEntity, err := coreQ.GetEntityByID(ctx, row.SubjectID)
-	if err != nil {
-		return fmt.Errorf("tag.DeleteByUUID resolve subject: %w", err)
-	}
-	beforeSnapshot := tagSnapshot(hydrateTag(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, tagFromUUIDRow(row)))
-
-	// Open transaction: delete tags row, archive entity row.
-	dbTx, err := txb.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("tag.DeleteByUUID begin tx: %w", err)
-	}
-	defer dbTx.Rollback(ctx) //nolint:errcheck
-
-	txTagQ := tagsdb.New(dbTx)
-	txCoreQ := coredb.New(dbTx)
-
-	if err := txTagQ.DeleteTag(ctx, row.EntityID); err != nil {
-		return fmt.Errorf("tag.DeleteByUUID delete tag: %w", err)
+		return err
 	}
 
-	if err := txCoreQ.ArchiveEntity(ctx, entityUUID); err != nil {
-		return fmt.Errorf("tag.DeleteByUUID archive entity: %w", err)
-	}
-
-	if err := dbTx.Commit(ctx); err != nil {
-		return fmt.Errorf("tag.DeleteByUUID commit: %w", err)
-	}
-
-	eid := row.EntityID
-	_ = s.aw.Write(ctx, "delete", "tag", &eid, beforeSnapshot, nil)
-
+	// 3. Post-commit observers.
+	s.obs.ObserveAfterCommit(ctx, "delete", "tag", &entityID, nil, nil)
 	return nil
 }
 
@@ -521,7 +586,7 @@ func tagFromUUIDRow(r tagsdb.GetTagByEntityUUIDRow) tagsdb.Tag {
 	}
 }
 
-// tagSnapshot builds an audit snapshot map from a Tag.
+// tagSnapshot builds an observation snapshot map from a Tag.
 func tagSnapshot(t Tag) map[string]any {
 	return map[string]any{
 		"uuid":         t.EntityUUID.String(),
