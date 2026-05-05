@@ -1,63 +1,9 @@
 package service
 
-import (
-	"context"
-	"errors"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-)
-
-// fakeTx is a minimal pgx.Tx that does nothing — suitable for service tests
-// that use fake queriers (so no real DB is involved).
-type fakeTx struct {
-	commitErr   error
-	rollbackErr error
-}
-
-func (f *fakeTx) Begin(_ context.Context) (pgx.Tx, error) { return f, nil }
-func (f *fakeTx) Commit(_ context.Context) error          { return f.commitErr }
-func (f *fakeTx) Rollback(_ context.Context) error        { return f.rollbackErr }
-func (f *fakeTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
-	return 0, errors.New("not implemented")
-}
-func (f *fakeTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
-func (f *fakeTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
-func (f *fakeTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
-	return nil, errors.New("not implemented")
-}
-func (f *fakeTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, nil
-}
-func (f *fakeTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-	return nil, errors.New("not implemented")
-}
-func (f *fakeTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row { return nil }
-func (f *fakeTx) Conn() *pgx.Conn                                        { return nil }
-
-// fakeTxBeginner implements TxBeginner using a fakeTx.
-type fakeTxBeginner struct {
-	tx  *fakeTx
-	err error
-}
-
-func (f *fakeTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.tx, nil
-}
-
-// delegatingTxBeginner returns a tx that, when methods are called, proxies
-// SQL execution via coredb.New(tx) / tagsdb.New(tx) to our mock queriers.
-// Since our mock queriers don't use real SQL, the tx is just a pass-through
-// handle — the Create calls on coreQ/tagQ passed to service.Create are
-// already wired to the mocks before the tx is opened.
+// This file is intentionally minimal. Service tests wire mock queriers via the
+// injectable newCoreQuerier / newTagQuerier factories on TagService and a
+// fakeDB that provides a fakeTx satisfying pgx.Tx. The fakeTx and fakeDB
+// types are defined in mock_test.go.
 //
-// For service Create tests we need the tx-scoped queriers to also work.
-// The service opens coredb.New(tx) and tagsdb.New(tx) inside the tx. Because
-// the fakeTx does nothing for QueryRow, those calls will fail.
-//
-// Resolution: we test Create validation (before-tx paths) at service level
-// and the full Create happy path at the handler level via fakeTagServicer.
-// This is consistent with core-module's approach.
+// Transaction-level behaviour (commit/rollback) is exercised by the tests in
+// tag_test.go that check observer calls and error propagation.

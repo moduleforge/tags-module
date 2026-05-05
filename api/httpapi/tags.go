@@ -77,9 +77,7 @@ func (h *handlers) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.d.Services.Tag.Create(
 		r.Context(),
 		h.d.CoreQuerier,
-		h.d.Services.Querier(),
 		*p,
-		h.d.txBeginner(),
 		in,
 	)
 	if err != nil {
@@ -228,7 +226,6 @@ func (h *handlers) handlePutTag(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.d.Services.Tag.UpdateByUUID(
 		r.Context(),
 		h.d.CoreQuerier,
-		h.d.Services.Querier(),
 		*p,
 		entityUUID,
 		in,
@@ -258,10 +255,8 @@ func (h *handlers) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
 	err = h.d.Services.Tag.DeleteByUUID(
 		r.Context(),
 		h.d.CoreQuerier,
-		h.d.Services.Querier(),
 		*p,
 		entityUUID,
-		h.d.txBeginner(),
 	)
 	if err != nil {
 		writeServiceErr(w, err)

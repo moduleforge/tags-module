@@ -2,13 +2,10 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	coreservice "github.com/moduleforge/core-api/service"
 	coredb "github.com/moduleforge/core-model/db"
@@ -27,14 +24,6 @@ func (f *fakePrincipalExtractor) FromContext(_ context.Context) (*coreservice.Pr
 	return f.p, f.ok
 }
 
-// --- fake audit.Writer ---
-
-type fakeAuditWriter struct{}
-
-func (f *fakeAuditWriter) Write(_ context.Context, _, _ string, _ *int64, _, _ any) error {
-	return nil
-}
-
 // --- fake TagServicer ---
 
 type fakeTagService struct {
@@ -43,7 +32,7 @@ type fakeTagService struct {
 	err  error
 }
 
-func (f *fakeTagService) Create(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ service.TxBeginner, _ service.CreateTagInput) (service.Tag, error) {
+func (f *fakeTagService) Create(_ context.Context, _ coredb.Querier, _ coreservice.Principal, _ service.CreateTagInput) (service.Tag, error) {
 	return f.tag, f.err
 }
 
@@ -59,11 +48,11 @@ func (f *fakeTagService) ListBySubject(_ context.Context, _ coredb.Querier, _ ta
 	return f.tags, f.err
 }
 
-func (f *fakeTagService) UpdateByUUID(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ uuid.UUID, _ service.UpdateTagInput) (service.Tag, error) {
+func (f *fakeTagService) UpdateByUUID(_ context.Context, _ coredb.Querier, _ coreservice.Principal, _ uuid.UUID, _ service.UpdateTagInput) (service.Tag, error) {
 	return f.tag, f.err
 }
 
-func (f *fakeTagService) DeleteByUUID(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ uuid.UUID, _ service.TxBeginner) error {
+func (f *fakeTagService) DeleteByUUID(_ context.Context, _ coredb.Querier, _ coreservice.Principal, _ uuid.UUID) error {
 	return f.err
 }
 
@@ -121,41 +110,6 @@ func (f *fakeCoreQuerier) UpdateNaturalPerson(_ context.Context, _ coredb.Update
 
 var _ coredb.Querier = (*fakeCoreQuerier)(nil)
 
-// --- fakeTx for handler tests that exercise the tx path (Create / Delete) ---
-
-type fakeTx struct{}
-
-func (f *fakeTx) Begin(_ context.Context) (pgx.Tx, error) { return f, nil }
-func (f *fakeTx) Commit(_ context.Context) error          { return nil }
-func (f *fakeTx) Rollback(_ context.Context) error        { return nil }
-func (f *fakeTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
-	return 0, errors.New("not implemented")
-}
-func (f *fakeTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
-func (f *fakeTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
-func (f *fakeTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
-	return nil, errors.New("not implemented")
-}
-func (f *fakeTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-	return pgconn.CommandTag{}, nil
-}
-func (f *fakeTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-	return nil, errors.New("not implemented")
-}
-func (f *fakeTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row { return nil }
-func (f *fakeTx) Conn() *pgx.Conn                                        { return nil }
-
-type fakeTxBeginner struct {
-	err error
-}
-
-func (f *fakeTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	return &fakeTx{}, nil
-}
-
 // noopLogger returns a slog.Logger that discards all output.
 func noopLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
@@ -171,11 +125,8 @@ func buildTestDeps(ext *fakePrincipalExtractor, tagSvc *fakeTagService) Deps {
 	svcs.Tag = tagSvc
 
 	return Deps{
-		Pool:        nil,
-		Tx:          &fakeTxBeginner{},
 		CoreQuerier: &fakeCoreQuerier{},
 		Services:    svcs,
-		Audit:       &fakeAuditWriter{},
 		Principal:   ext,
 		Logger:      noopLogger(),
 	}
