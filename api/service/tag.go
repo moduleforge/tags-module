@@ -111,7 +111,7 @@ func (s *TagService) Create(
 	in CreateTagInput,
 ) (Tag, error) {
 	// 1. Authorize.
-	if err := s.az.Authorize(ctx, "create", TagEntity{}); err != nil {
+	if err := s.az.Authorize(ctx, "create", nil); err != nil {
 		return Tag{}, err
 	}
 
@@ -222,7 +222,7 @@ func (s *TagService) GetByUUID(
 	// 1. Authorize against the actor's own entity ID so the Authorizer's
 	// "non-admin can access only own data" rule passes. Inline ownership
 	// filtering below further restricts what the actor actually sees.
-	if err := s.az.Authorize(ctx, "read", TagEntity{ID: &actor.EntityID}); err != nil {
+	if err := s.az.Authorize(ctx, "read", &actor.EntityID); err != nil {
 		return Tag{}, err
 	}
 
@@ -262,7 +262,7 @@ func (s *TagService) Search(
 ) ([]Tag, error) {
 	// 1. Authorize against the actor's own entity ID so non-admins pass the
 	// Authorizer gate. Post-filtering below restricts results to owned tags.
-	if err := s.az.Authorize(ctx, "search", TagEntity{ID: &actor.EntityID}); err != nil {
+	if err := s.az.Authorize(ctx, "search", &actor.EntityID); err != nil {
 		return nil, err
 	}
 
@@ -355,7 +355,7 @@ func (s *TagService) ListBySubject(
 
 	// Authorize against the subject entity ID: subject owners plus admins pass;
 	// unrelated actors are denied before any tag rows are read.
-	if err := s.az.Authorize(ctx, "list", TagEntity{ID: &subjectEntity.ID}); err != nil {
+	if err := s.az.Authorize(ctx, "list", &subjectEntity.ID); err != nil {
 		return nil, err
 	}
 
@@ -419,7 +419,7 @@ func (s *TagService) UpdateByUUID(
 
 	// 1. Authorize — we authorize before fetching; use a stub target
 	//    (no entity ID yet since we haven't fetched).
-	if err := s.az.Authorize(ctx, "update", TagEntity{}); err != nil {
+	if err := s.az.Authorize(ctx, "update", nil); err != nil {
 		return Tag{}, err
 	}
 
@@ -496,7 +496,7 @@ func (s *TagService) DeleteByUUID(
 	entityUUID uuid.UUID,
 ) error {
 	// 1. Authorize.
-	if err := s.az.Authorize(ctx, "delete", TagEntity{}); err != nil {
+	if err := s.az.Authorize(ctx, "delete", nil); err != nil {
 		return err
 	}
 
