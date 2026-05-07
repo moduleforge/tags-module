@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/txhelper"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
@@ -20,14 +19,14 @@ import (
 // allowAllAuthz is a stub Authorizer that always permits every operation.
 type allowAllAuthz struct{}
 
-func (allowAllAuthz) Authorize(_ context.Context, _ string, _ entity.Entity) error {
+func (allowAllAuthz) Authorize(_ context.Context, _ string, _ *int64) error {
 	return nil
 }
 
 // denyAllAuthz is a stub Authorizer that always rejects every operation.
 type denyAllAuthz struct{ err error }
 
-func (d denyAllAuthz) Authorize(_ context.Context, _ string, _ entity.Entity) error {
+func (d denyAllAuthz) Authorize(_ context.Context, _ string, _ *int64) error {
 	return d.err
 }
 
