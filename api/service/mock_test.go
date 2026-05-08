@@ -226,22 +226,30 @@ func (m *mockCoreQuerier) CreateEntity(_ context.Context, fundamentalTypeID int6
 	}, nil
 }
 
-func (m *mockCoreQuerier) CreateCorporation(_ context.Context, _ coredb.CreateCorporationParams) (coredb.Corporation, error) {
-	return coredb.Corporation{}, nil
+func (m *mockCoreQuerier) CreateCorporation(_ context.Context, _ coredb.CreateCorporationParams) (coredb.CreateCorporationRow, error) {
+	return coredb.CreateCorporationRow{}, nil
 }
 
 func (m *mockCoreQuerier) CreateLegalEntity(_ context.Context, _ int64) (int64, error) { return 0, nil }
 
-func (m *mockCoreQuerier) CreateNaturalPerson(_ context.Context, _ coredb.CreateNaturalPersonParams) (coredb.NaturalPerson, error) {
-	return coredb.NaturalPerson{}, nil
+func (m *mockCoreQuerier) CreateNaturalPerson(_ context.Context, _ coredb.CreateNaturalPersonParams) (coredb.CreateNaturalPersonRow, error) {
+	return coredb.CreateNaturalPersonRow{}, nil
+}
+
+func (m *mockCoreQuerier) ListAllTypes(_ context.Context) ([]coredb.Type, error) {
+	var result []coredb.Type
+	for _, t := range m.types {
+		result = append(result, t)
+	}
+	return result, nil
 }
 
 func (m *mockCoreQuerier) CreateServiceAccount(_ context.Context, _ coredb.CreateServiceAccountParams) (coredb.ServiceAccount, error) {
 	return coredb.ServiceAccount{}, nil
 }
 
-func (m *mockCoreQuerier) GetCorporationByEntityID(_ context.Context, _ int64) (coredb.Corporation, error) {
-	return coredb.Corporation{}, pgx.ErrNoRows
+func (m *mockCoreQuerier) GetCorporationByEntityID(_ context.Context, _ int64) (coredb.GetCorporationByEntityIDRow, error) {
+	return coredb.GetCorporationByEntityIDRow{}, pgx.ErrNoRows
 }
 
 func (m *mockCoreQuerier) GetEntityByUUID(_ context.Context, argUuid uuid.UUID) (coredb.GetEntityByUUIDRow, error) {
@@ -270,8 +278,8 @@ func (m *mockCoreQuerier) GetLegalEntityByEntityID(_ context.Context, _ int64) (
 	return 0, pgx.ErrNoRows
 }
 
-func (m *mockCoreQuerier) GetNaturalPersonByEntityID(_ context.Context, _ int64) (coredb.NaturalPerson, error) {
-	return coredb.NaturalPerson{}, pgx.ErrNoRows
+func (m *mockCoreQuerier) GetNaturalPersonByEntityID(_ context.Context, _ int64) (coredb.GetNaturalPersonByEntityIDRow, error) {
+	return coredb.GetNaturalPersonByEntityIDRow{}, pgx.ErrNoRows
 }
 
 func (m *mockCoreQuerier) GetServiceAccountByEntityID(_ context.Context, _ int64) (coredb.ServiceAccount, error) {
@@ -309,23 +317,30 @@ var _ coredb.Querier = (*mockCoreQuerier)(nil)
 // --- mock tagsdb.Querier ---
 
 type mockTagQuerier struct {
-	tags       map[int64]tagsdb.Tag     // by entity_id
-	tagsByUUID map[uuid.UUID]tagsdb.Tag // by entity uuid
-	entityUUID map[int64]uuid.UUID      // entity_id → uuid
-	uuidEntity map[uuid.UUID]int64      // uuid → entity_id
-	nextID     int64
-	createErr  error
-	deleteErr  error
-	updateErr  error
+	tags           map[int64]tagsdb.Tag     // by entity_id
+	tagsByUUID     map[uuid.UUID]tagsdb.Tag // by entity uuid
+	entityUUID     map[int64]uuid.UUID      // entity_id → uuid
+	uuidEntity     map[uuid.UUID]int64      // uuid → entity_id
+	adminEntityIDs map[int64]bool           // entity IDs treated as admin by access-fn simulation
+	nextID         int64
+	createErr      error
+	deleteErr      error
+	updateErr      error
 }
 
 func newMockTagQuerier() *mockTagQuerier {
 	return &mockTagQuerier{
-		tags:       make(map[int64]tagsdb.Tag),
-		tagsByUUID: make(map[uuid.UUID]tagsdb.Tag),
-		entityUUID: make(map[int64]uuid.UUID),
-		uuidEntity: make(map[uuid.UUID]int64),
+		tags:           make(map[int64]tagsdb.Tag),
+		tagsByUUID:     make(map[uuid.UUID]tagsdb.Tag),
+		entityUUID:     make(map[int64]uuid.UUID),
+		uuidEntity:     make(map[uuid.UUID]int64),
+		adminEntityIDs: make(map[int64]bool),
 	}
+}
+
+// grantAdmin marks the given entity ID as an admin in the access-fn simulation.
+func (m *mockTagQuerier) grantAdmin(entityID int64) {
+	m.adminEntityIDs[entityID] = true
 }
 
 func (m *mockTagQuerier) nextSeq() int64 {
@@ -358,10 +373,15 @@ func (m *mockTagQuerier) seedTag(entityID, ownerID, subjectID int64, purpose, va
 	return u, t
 }
 
-func (m *mockTagQuerier) CountTagsBySubjectEntityID(_ context.Context, subjectID int64) (int64, error) {
+func (m *mockTagQuerier) CountTagsBySubjectEntityID(_ context.Context, arg tagsdb.CountTagsBySubjectEntityIDParams) (int64, error) {
 	var count int64
 	for _, t := range m.tags {
-		if t.SubjectID == subjectID {
+		if t.SubjectID != arg.SubjectID {
+			continue
+		}
+		// Simulate access function: actor is owner, subject, or admin (no admin
+		// flag in params; treat any match on owner or subject as accessible).
+		if arg.ActorEntityID == t.OwnerID || arg.ActorEntityID == t.SubjectID {
 			count++
 		}
 	}
@@ -425,8 +445,8 @@ func (m *mockTagQuerier) GetTagByEntityUUID(_ context.Context, argUuid uuid.UUID
 	return tagsdb.GetTagByEntityUUIDRow{}, pgx.ErrNoRows
 }
 
-func (m *mockTagQuerier) ListTagsBySubjectEntityID(_ context.Context, arg tagsdb.ListTagsBySubjectEntityIDParams) ([]tagsdb.Tag, error) {
-	var result []tagsdb.Tag
+func (m *mockTagQuerier) ListTagsBySubjectEntityID(_ context.Context, arg tagsdb.ListTagsBySubjectEntityIDParams) ([]tagsdb.ListTagsBySubjectEntityIDRow, error) {
+	var result []tagsdb.ListTagsBySubjectEntityIDRow
 	for _, t := range m.tags {
 		if t.SubjectID != arg.SubjectID {
 			continue
@@ -434,13 +454,31 @@ func (m *mockTagQuerier) ListTagsBySubjectEntityID(_ context.Context, arg tagsdb
 		if arg.Purpose.Valid && t.Purpose != arg.Purpose.String {
 			continue
 		}
-		result = append(result, t)
+		// Simulate access function: actor is admin, owner, or subject.
+		if !m.adminEntityIDs[arg.ActorEntityID] && arg.ActorEntityID != t.OwnerID && arg.ActorEntityID != t.SubjectID {
+			continue
+		}
+		u, ok := m.entityUUID[t.EntityID]
+		if !ok {
+			u = uuid.Nil
+		}
+		result = append(result, tagsdb.ListTagsBySubjectEntityIDRow{
+			EntityID:  t.EntityID,
+			OwnerID:   t.OwnerID,
+			SubjectID: t.SubjectID,
+			Purpose:   t.Purpose,
+			Value:     t.Value,
+			Color:     t.Color,
+			CreatedAt: t.CreatedAt,
+			UpdatedAt: t.UpdatedAt,
+			Uuid:      u,
+		})
 	}
 	return result, nil
 }
 
-func (m *mockTagQuerier) SearchTags(_ context.Context, arg tagsdb.SearchTagsParams) ([]tagsdb.Tag, error) {
-	var result []tagsdb.Tag
+func (m *mockTagQuerier) SearchTags(_ context.Context, arg tagsdb.SearchTagsParams) ([]tagsdb.SearchTagsRow, error) {
+	var result []tagsdb.SearchTagsRow
 	for _, t := range m.tags {
 		if arg.OwnerID.Valid && t.OwnerID != arg.OwnerID.Int64 {
 			continue
@@ -454,7 +492,25 @@ func (m *mockTagQuerier) SearchTags(_ context.Context, arg tagsdb.SearchTagsPara
 		if arg.Value.Valid && t.Value != arg.Value.String {
 			continue
 		}
-		result = append(result, t)
+		// Simulate access function: actor is admin, owner, or subject.
+		if !m.adminEntityIDs[arg.ActorEntityID] && arg.ActorEntityID != t.OwnerID && arg.ActorEntityID != t.SubjectID {
+			continue
+		}
+		u, ok := m.entityUUID[t.EntityID]
+		if !ok {
+			u = uuid.Nil
+		}
+		result = append(result, tagsdb.SearchTagsRow{
+			EntityID:  t.EntityID,
+			OwnerID:   t.OwnerID,
+			SubjectID: t.SubjectID,
+			Purpose:   t.Purpose,
+			Value:     t.Value,
+			Color:     t.Color,
+			CreatedAt: t.CreatedAt,
+			UpdatedAt: t.UpdatedAt,
+			Uuid:      u,
+		})
 	}
 	return result, nil
 }

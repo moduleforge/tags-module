@@ -252,7 +252,8 @@ func (s *TagService) GetByUUID(
 	return hydrateTag(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, tagFromUUIDRow(row)), nil
 }
 
-// Search finds tags matching filter, post-filtered by authz.
+// Search finds tags matching filter. Row-level scoping is enforced in SQL via
+// the accessible_tag_ids_for_actor join; no post-query Go filtering needed.
 func (s *TagService) Search(
 	ctx context.Context,
 	coreQ coredb.Querier,
@@ -260,9 +261,8 @@ func (s *TagService) Search(
 	actor coreservice.Principal,
 	filter SearchTagsFilter,
 ) ([]Tag, error) {
-	// 1. Authorize against the actor's own entity ID so non-admins pass the
-	// Authorizer gate. Post-filtering below restricts results to owned tags.
-	if err := s.az.Authorize(ctx, "search", &actor.EntityID); err != nil {
+	// 1. Authorize.
+	if err := s.az.Authorize(ctx, "list", &actor.EntityID); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +270,12 @@ func (s *TagService) Search(
 		return nil, fmt.Errorf("%w: at least one of owner or subject is required", ErrInvalidInput)
 	}
 
-	params := tagsdb.SearchTagsParams{}
+	params := tagsdb.SearchTagsParams{
+		ActorEntityID: actor.EntityID,
+		// Phase D placeholder; full pagination plumbing lands in Phase E.
+		Limit:  1000,
+		Offset: 0,
+	}
 
 	if filter.OwnerEntityUUID != nil {
 		ownerEntity, err := coreQ.GetEntityByUUID(ctx, *filter.OwnerEntityUUID)
@@ -306,12 +311,9 @@ func (s *TagService) Search(
 		return nil, fmt.Errorf("tag.Search query: %w", err)
 	}
 
-	// Post-filter for non-admins.
+	// SQL access function enforces row-level scoping; no Go-side post-filter.
 	var result []Tag
 	for _, row := range rows {
-		if !actor.IsAdmin && actor.EntityID != row.OwnerID && actor.EntityID != row.SubjectID {
-			continue
-		}
 		ownerEntity, err := coreQ.GetEntityByID(ctx, row.OwnerID)
 		if err != nil {
 			return nil, fmt.Errorf("tag.Search resolve owner uuid: %w", err)
@@ -320,11 +322,7 @@ func (s *TagService) Search(
 		if err != nil {
 			return nil, fmt.Errorf("tag.Search resolve subject uuid: %w", err)
 		}
-		entityRow, err := coreQ.GetEntityByID(ctx, row.EntityID)
-		if err != nil {
-			return nil, fmt.Errorf("tag.Search resolve entity uuid: %w", err)
-		}
-		result = append(result, hydrateTag(entityRow.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, row))
+		result = append(result, hydrateTagFromSearchRow(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, row))
 	}
 
 	if result == nil {
@@ -333,7 +331,9 @@ func (s *TagService) Search(
 	return result, nil
 }
 
-// ListBySubject returns all tags targeting a given subject entity, filtered by authz.
+// ListBySubject returns all tags targeting a given subject entity. Row-level
+// scoping is enforced in SQL via the accessible_tag_ids_for_actor join; no
+// post-query Go filtering needed.
 func (s *TagService) ListBySubject(
 	ctx context.Context,
 	coreQ coredb.Querier,
@@ -343,8 +343,6 @@ func (s *TagService) ListBySubject(
 	purposeFilter *string,
 ) ([]Tag, error) {
 	// 1. Resolve the subject entity first so we can authorize against its ID.
-	// Subject owners (the entity whose tags they are) and admins can list;
-	// others are denied at the gate before any data is returned.
 	subjectEntity, err := coreQ.GetEntityByUUID(ctx, subjectUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -353,8 +351,7 @@ func (s *TagService) ListBySubject(
 		return nil, fmt.Errorf("tag.ListBySubject resolve subject: %w", err)
 	}
 
-	// Authorize against the subject entity ID: subject owners plus admins pass;
-	// unrelated actors are denied before any tag rows are read.
+	// Authorize against the subject entity ID.
 	if err := s.az.Authorize(ctx, "list", &subjectEntity.ID); err != nil {
 		return nil, err
 	}
@@ -365,31 +362,25 @@ func (s *TagService) ListBySubject(
 	}
 
 	rows, err := tagQ.ListTagsBySubjectEntityID(ctx, tagsdb.ListTagsBySubjectEntityIDParams{
-		SubjectID: subjectEntity.ID,
-		Purpose:   purposeParam,
+		ActorEntityID: actor.EntityID,
+		SubjectID:     subjectEntity.ID,
+		Purpose:       purposeParam,
+		// Phase D placeholder; full pagination plumbing lands in Phase E.
+		Limit:  1000,
+		Offset: 0,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tag.ListBySubject query: %w", err)
 	}
 
+	// SQL access function enforces row-level scoping; no Go-side post-filter.
 	var result []Tag
 	for _, row := range rows {
-		// Authz post-filter:
-		//   admin → all pass
-		//   actor == subject → all pass (subject sees all tags about themselves)
-		//   otherwise → only rows the actor owns
-		if !actor.IsAdmin && actor.EntityID != subjectEntity.ID && actor.EntityID != row.OwnerID {
-			continue
-		}
 		ownerEntity, err := coreQ.GetEntityByID(ctx, row.OwnerID)
 		if err != nil {
 			return nil, fmt.Errorf("tag.ListBySubject resolve owner uuid: %w", err)
 		}
-		entityRow, err := coreQ.GetEntityByID(ctx, row.EntityID)
-		if err != nil {
-			return nil, fmt.Errorf("tag.ListBySubject resolve entity uuid: %w", err)
-		}
-		result = append(result, hydrateTag(entityRow.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, row))
+		result = append(result, hydrateTagFromListRow(row.Uuid, ownerEntity.Uuid, subjectEntity.Uuid, row))
 	}
 
 	if result == nil {
@@ -575,6 +566,52 @@ func hydrateTag(entityUUID, ownerUUID, subjectUUID uuid.UUID, t tagsdb.Tag) Tag 
 	}
 	if t.UpdatedAt.Valid {
 		tag.UpdatedAt = t.UpdatedAt.Time
+	}
+	return tag
+}
+
+// hydrateTagFromSearchRow converts a SearchTagsRow to the service Tag type.
+// The tag entity UUID comes directly from the SQL JOIN on entities.
+func hydrateTagFromSearchRow(entityUUID, ownerUUID, subjectUUID uuid.UUID, r tagsdb.SearchTagsRow) Tag {
+	tag := Tag{
+		EntityUUID:  entityUUID,
+		OwnerUUID:   ownerUUID,
+		SubjectUUID: subjectUUID,
+		Purpose:     r.Purpose,
+		Value:       r.Value,
+	}
+	if r.Color.Valid {
+		c := r.Color.String
+		tag.Color = &c
+	}
+	if r.CreatedAt.Valid {
+		tag.CreatedAt = r.CreatedAt.Time
+	}
+	if r.UpdatedAt.Valid {
+		tag.UpdatedAt = r.UpdatedAt.Time
+	}
+	return tag
+}
+
+// hydrateTagFromListRow converts a ListTagsBySubjectEntityIDRow to the service Tag type.
+// The tag entity UUID comes directly from the SQL JOIN on entities.
+func hydrateTagFromListRow(entityUUID, ownerUUID, subjectUUID uuid.UUID, r tagsdb.ListTagsBySubjectEntityIDRow) Tag {
+	tag := Tag{
+		EntityUUID:  entityUUID,
+		OwnerUUID:   ownerUUID,
+		SubjectUUID: subjectUUID,
+		Purpose:     r.Purpose,
+		Value:       r.Value,
+	}
+	if r.Color.Valid {
+		c := r.Color.String
+		tag.Color = &c
+	}
+	if r.CreatedAt.Valid {
+		tag.CreatedAt = r.CreatedAt.Time
+	}
+	if r.UpdatedAt.Valid {
+		tag.UpdatedAt = r.UpdatedAt.Time
 	}
 	return tag
 }
