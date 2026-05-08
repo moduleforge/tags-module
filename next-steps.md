@@ -30,7 +30,7 @@ All 6 planned phases (bootstrap → model → API → GUI → wire into users-mo
   10. Audit log shows the create/update/delete chain.
 - **Service coverage is 62%** (below the 70% target) because Create/Delete tx paths require real tx behavior. Handler tests exercise these paths end-to-end via a fake service, so behavior is covered; coverage metric isn't.
 - **List envelope asymmetry.** `GET /tags` returns a bare array; `GET /entities/{uuid}/tags` returns `{tags: [...]}`. Client handles both; worth standardizing in a future pass.
-- **N+1 in `Search` / `ListBySubject`.** `tags-module/api/service/tag.go` issues a `GetEntityByID` per row to resolve owner/subject UUIDs. Acceptable for niche-app scale; factor a shared helper if call sites multiply.
+- **N+1 on owner/subject UUID resolution in `Search` and `ListBySubject` hydration.** Phase 1 access-fn rewrite returned the tag's own UUID via JOIN, but owner_id and subject_id are still resolved per-row via `GetEntityByID` in the service layer (`tag.go` ~line 350, ~line 354). For paged niche-app scale this is acceptable; if it becomes hot, batch via `GetEntitiesByIDs(IN ...)` or extend the SQL JOIN.
 - **`display.Registry.Render` unused at runtime.** `coreservice.RegisterBuiltins` is now wired in users-module main.go (first consumer), but no production code path currently calls `Render`. Becomes load-bearing if/when a UI surface needs server-rendered entity display names.
 
 ## Cross-cutting framework — deferred from Phase 5 review
