@@ -105,6 +105,7 @@ type TagServicer interface {
 type TagService struct {
 	db             txhelper.DB
 	az             authz.Authorizer
+	opRes          authz.OpResolver
 	obs            *observer.ObserverGroup
 	resolver       *types.Resolver
 	entityResolver *entity.Resolver
@@ -303,9 +304,17 @@ func (s *TagService) Search(
 		return nil, fmt.Errorf("%w: at least one of owner or subject is required", ErrInvalidInput)
 	}
 
+	// op_ids covers the read closure (read, sread, update, delete, swrite, manage)
+	// per the SatisfiedBy contract — anyone with any of these grants can see the row.
+	opIDs, err := s.opRes.SatisfiedBy("read")
+	if err != nil {
+		return nil, fmt.Errorf("tag.Search resolve op_ids: %w", err)
+	}
+
 	limit, offset := p.normalize()
 	params := tagsdb.SearchTagsParams{
 		ActorEntityID: actor.EntityID,
+		OpIds:         opIDs,
 		Limit:         limit,
 		Offset:        offset,
 	}
@@ -390,6 +399,13 @@ func (s *TagService) ListBySubject(
 		return nil, err
 	}
 
+	// op_ids covers the read closure (read, sread, update, delete, swrite, manage)
+	// per the SatisfiedBy contract — anyone with any of these grants can see the row.
+	opIDs, err := s.opRes.SatisfiedBy("read")
+	if err != nil {
+		return nil, fmt.Errorf("tag.ListBySubject resolve op_ids: %w", err)
+	}
+
 	purposeParam := pgtype.Text{}
 	if purposeFilter != nil {
 		purposeParam = pgtype.Text{String: *purposeFilter, Valid: true}
@@ -398,6 +414,7 @@ func (s *TagService) ListBySubject(
 	limit, offset := p.normalize()
 	rows, err := tagQ.ListTagsBySubjectEntityID(ctx, tagsdb.ListTagsBySubjectEntityIDParams{
 		ActorEntityID: actor.EntityID,
+		OpIds:         opIDs,
 		SubjectID:     subjectEntity.ID,
 		Purpose:       purposeParam,
 		Limit:         limit,

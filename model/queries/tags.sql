@@ -34,7 +34,7 @@ SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
        t.created_at, t.updated_at, e.uuid
 FROM tags t
 JOIN entities e ON e.id = t.entity_id
-JOIN accessible_tag_ids_for_actor(@actor_entity_id) acc ON acc.entity_id = t.entity_id
+JOIN accessible_tag_ids_for_actor(@actor_entity_id, sqlc.arg(op_ids)::int[]) acc ON acc.entity_id = t.entity_id
 WHERE t.subject_id = @subject_id
   AND (sqlc.narg('purpose')::text IS NULL OR t.purpose = sqlc.narg('purpose')::text)
 ORDER BY t.created_at ASC
@@ -45,7 +45,7 @@ SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
        t.created_at, t.updated_at, e.uuid
 FROM tags t
 JOIN entities e ON e.id = t.entity_id
-JOIN accessible_tag_ids_for_actor(@actor_entity_id) acc ON acc.entity_id = t.entity_id
+JOIN accessible_tag_ids_for_actor(@actor_entity_id, sqlc.arg(op_ids)::int[]) acc ON acc.entity_id = t.entity_id
 WHERE (sqlc.narg('owner_id')::bigint IS NULL OR t.owner_id = sqlc.narg('owner_id')::bigint)
   AND (sqlc.narg('subject_id')::bigint IS NULL OR t.subject_id = sqlc.narg('subject_id')::bigint)
   AND (sqlc.narg('purpose')::text IS NULL OR t.purpose = sqlc.narg('purpose')::text)
@@ -56,5 +56,5 @@ LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 -- name: CountTagsBySubjectEntityID :one
 SELECT COUNT(*)
 FROM tags t
-JOIN accessible_tag_ids_for_actor(@actor_entity_id) acc ON acc.entity_id = t.entity_id
+JOIN accessible_tag_ids_for_actor(@actor_entity_id, sqlc.arg(op_ids)::int[]) acc ON acc.entity_id = t.entity_id
 WHERE t.subject_id = @subject_id;

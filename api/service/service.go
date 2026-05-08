@@ -39,6 +39,12 @@ type Services struct {
 // az gates every operation; a non-nil error from az.Authorize aborts the
 // operation immediately.
 //
+// opRes provides the satisfied-by closure for list queries. Pass the
+// OperationRegistry loaded at startup from the authz_operations table.
+// List queries call opRes.SatisfiedBy("read") to compute the op_ids slice
+// passed to the access function: anyone with a read, sread, update, delete,
+// swrite, or manage grant can see the row.
+//
 // obs receives in-tx and post-commit notifications for every mutation;
 // pass observer.NewObserverGroup() for a no-op group.
 //
@@ -48,13 +54,14 @@ type Services struct {
 // entityResolver translates an entity UUID to its internal entity ID for
 // UUID-keyed reads (GetByUUID), applying the configured per-resource not-
 // found policy (default: 403 to mask existence).
-func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Authorizer, obs *observer.ObserverGroup, resolver *types.Resolver, entityResolver *entity.Resolver) *Services {
+func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Authorizer, opRes authz.OpResolver, obs *observer.ObserverGroup, resolver *types.Resolver, entityResolver *entity.Resolver) *Services {
 	newCoreQ := func(tx pgx.Tx) coredb.Querier { return coredb.New(tx) }
 	newTagQ := func(tx pgx.Tx) tagsdb.Querier { return tagsdb.New(tx) }
 	return &Services{
 		Tag: &TagService{
 			db:             db,
 			az:             az,
+			opRes:          opRes,
 			obs:            obs,
 			resolver:       resolver,
 			entityResolver: entityResolver,

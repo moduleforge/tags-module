@@ -15,17 +15,18 @@ import (
 const countTagsBySubjectEntityID = `-- name: CountTagsBySubjectEntityID :one
 SELECT COUNT(*)
 FROM tags t
-JOIN accessible_tag_ids_for_actor($1) acc ON acc.entity_id = t.entity_id
-WHERE t.subject_id = $2
+JOIN accessible_tag_ids_for_actor($1, $2::int[]) acc ON acc.entity_id = t.entity_id
+WHERE t.subject_id = $3
 `
 
 type CountTagsBySubjectEntityIDParams struct {
-	ActorEntityID int64 `json:"actor_entity_id"`
-	SubjectID     int64 `json:"subject_id"`
+	ActorEntityID int64   `json:"actor_entity_id"`
+	OpIds         []int32 `json:"op_ids"`
+	SubjectID     int64   `json:"subject_id"`
 }
 
 func (q *Queries) CountTagsBySubjectEntityID(ctx context.Context, arg CountTagsBySubjectEntityIDParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countTagsBySubjectEntityID, arg.ActorEntityID, arg.SubjectID)
+	row := q.db.QueryRow(ctx, countTagsBySubjectEntityID, arg.ActorEntityID, arg.OpIds, arg.SubjectID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -147,15 +148,16 @@ SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
        t.created_at, t.updated_at, e.uuid
 FROM tags t
 JOIN entities e ON e.id = t.entity_id
-JOIN accessible_tag_ids_for_actor($1) acc ON acc.entity_id = t.entity_id
-WHERE t.subject_id = $2
-  AND ($3::text IS NULL OR t.purpose = $3::text)
+JOIN accessible_tag_ids_for_actor($1, $2::int[]) acc ON acc.entity_id = t.entity_id
+WHERE t.subject_id = $3
+  AND ($4::text IS NULL OR t.purpose = $4::text)
 ORDER BY t.created_at ASC
-LIMIT $5 OFFSET $4
+LIMIT $6 OFFSET $5
 `
 
 type ListTagsBySubjectEntityIDParams struct {
 	ActorEntityID int64       `json:"actor_entity_id"`
+	OpIds         []int32     `json:"op_ids"`
 	SubjectID     int64       `json:"subject_id"`
 	Purpose       pgtype.Text `json:"purpose"`
 	Offset        int32       `json:"offset"`
@@ -177,6 +179,7 @@ type ListTagsBySubjectEntityIDRow struct {
 func (q *Queries) ListTagsBySubjectEntityID(ctx context.Context, arg ListTagsBySubjectEntityIDParams) ([]ListTagsBySubjectEntityIDRow, error) {
 	rows, err := q.db.Query(ctx, listTagsBySubjectEntityID,
 		arg.ActorEntityID,
+		arg.OpIds,
 		arg.SubjectID,
 		arg.Purpose,
 		arg.Offset,
@@ -215,17 +218,18 @@ SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
        t.created_at, t.updated_at, e.uuid
 FROM tags t
 JOIN entities e ON e.id = t.entity_id
-JOIN accessible_tag_ids_for_actor($1) acc ON acc.entity_id = t.entity_id
-WHERE ($2::bigint IS NULL OR t.owner_id = $2::bigint)
-  AND ($3::bigint IS NULL OR t.subject_id = $3::bigint)
-  AND ($4::text IS NULL OR t.purpose = $4::text)
-  AND ($5::text IS NULL OR t.value = $5::text)
+JOIN accessible_tag_ids_for_actor($1, $2::int[]) acc ON acc.entity_id = t.entity_id
+WHERE ($3::bigint IS NULL OR t.owner_id = $3::bigint)
+  AND ($4::bigint IS NULL OR t.subject_id = $4::bigint)
+  AND ($5::text IS NULL OR t.purpose = $5::text)
+  AND ($6::text IS NULL OR t.value = $6::text)
 ORDER BY t.created_at ASC
-LIMIT $7 OFFSET $6
+LIMIT $8 OFFSET $7
 `
 
 type SearchTagsParams struct {
 	ActorEntityID int64       `json:"actor_entity_id"`
+	OpIds         []int32     `json:"op_ids"`
 	OwnerID       pgtype.Int8 `json:"owner_id"`
 	SubjectID     pgtype.Int8 `json:"subject_id"`
 	Purpose       pgtype.Text `json:"purpose"`
@@ -249,6 +253,7 @@ type SearchTagsRow struct {
 func (q *Queries) SearchTags(ctx context.Context, arg SearchTagsParams) ([]SearchTagsRow, error) {
 	rows, err := q.db.Query(ctx, searchTags,
 		arg.ActorEntityID,
+		arg.OpIds,
 		arg.OwnerID,
 		arg.SubjectID,
 		arg.Purpose,

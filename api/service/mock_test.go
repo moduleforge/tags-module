@@ -30,6 +30,24 @@ func (d denyAllAuthz) Authorize(_ context.Context, _ string, _ *int64) error {
 	return d.err
 }
 
+// --- stub authz.OpResolver ---
+
+// stubOpResolver is a stub OpResolver that returns a fixed set of op IDs.
+// Tests that exercise list queries use this to satisfy the SatisfiedBy call.
+type stubOpResolver struct {
+	ids []int32
+	err error
+}
+
+func newStubOpResolver() *stubOpResolver {
+	// Return a representative set of op IDs (matches the seeded operations table).
+	return &stubOpResolver{ids: []int32{1, 2, 3, 4, 5, 6, 7}}
+}
+
+func (r *stubOpResolver) SatisfiedBy(_ string) ([]int32, error) {
+	return r.ids, r.err
+}
+
 // --- fake DB (txhelper.DB) and Tx ---
 
 // fakeDB implements txhelper.DB. It returns the configured tx on BeginTx.
@@ -66,7 +84,7 @@ func (t *fakeTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx
 	return 0, nil
 }
 func (t *fakeTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
-func (t *fakeTx) LargeObjects() pgx.LargeObjects                              { return pgx.LargeObjects{} }
+func (t *fakeTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
 func (t *fakeTx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescription, error) {
 	return nil, nil
 }
@@ -75,7 +93,7 @@ func (t *fakeTx) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag,
 }
 func (t *fakeTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) { return nil, nil }
 func (t *fakeTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row        { return nil }
-func (t *fakeTx) Conn() *pgx.Conn                                                { return nil }
+func (t *fakeTx) Conn() *pgx.Conn                                               { return nil }
 
 var _ pgx.Tx = (*fakeTx)(nil)
 

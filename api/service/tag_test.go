@@ -44,6 +44,7 @@ func buildService(coreQ *mockCoreQuerier, tagQ *mockTagQuerier) (*TagService, *r
 	svc := &TagService{
 		db:             newFakeDB(),
 		az:             allowAllAuthz{},
+		opRes:          newStubOpResolver(),
 		obs:            obs,
 		resolver:       mustResolver(coreQ),
 		entityResolver: entity.NewResolver(),
