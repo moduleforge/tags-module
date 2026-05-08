@@ -63,21 +63,25 @@ var _ service.TagServicer = (*fakeTagService)(nil)
 type fakeCoreQuerier struct{}
 
 func (f *fakeCoreQuerier) ArchiveEntity(_ context.Context, _ uuid.UUID) error { return nil }
-func (f *fakeCoreQuerier) CreateCorporation(_ context.Context, _ coredb.CreateCorporationParams) (coredb.Corporation, error) {
-	return coredb.Corporation{}, nil
+func (f *fakeCoreQuerier) CreateCorporation(_ context.Context, _ coredb.CreateCorporationParams) (coredb.CreateCorporationRow, error) {
+	return coredb.CreateCorporationRow{}, nil
 }
 func (f *fakeCoreQuerier) CreateEntity(_ context.Context, _ int64) (coredb.Entity, error) {
 	return coredb.Entity{}, nil
 }
 func (f *fakeCoreQuerier) CreateLegalEntity(_ context.Context, _ int64) (int64, error) { return 0, nil }
-func (f *fakeCoreQuerier) CreateNaturalPerson(_ context.Context, _ coredb.CreateNaturalPersonParams) (coredb.NaturalPerson, error) {
-	return coredb.NaturalPerson{}, nil
+func (f *fakeCoreQuerier) CreateNaturalPerson(_ context.Context, _ coredb.CreateNaturalPersonParams) (coredb.CreateNaturalPersonRow, error) {
+	return coredb.CreateNaturalPersonRow{}, nil
+}
+
+func (f *fakeCoreQuerier) ListAllTypes(_ context.Context) ([]coredb.Type, error) {
+	return nil, nil
 }
 func (f *fakeCoreQuerier) CreateServiceAccount(_ context.Context, _ coredb.CreateServiceAccountParams) (coredb.ServiceAccount, error) {
 	return coredb.ServiceAccount{}, nil
 }
-func (f *fakeCoreQuerier) GetCorporationByEntityID(_ context.Context, _ int64) (coredb.Corporation, error) {
-	return coredb.Corporation{}, nil
+func (f *fakeCoreQuerier) GetCorporationByEntityID(_ context.Context, _ int64) (coredb.GetCorporationByEntityIDRow, error) {
+	return coredb.GetCorporationByEntityIDRow{}, nil
 }
 func (f *fakeCoreQuerier) GetEntityByID(_ context.Context, _ int64) (coredb.GetEntityByIDRow, error) {
 	return coredb.GetEntityByIDRow{}, nil
@@ -88,8 +92,8 @@ func (f *fakeCoreQuerier) GetEntityByUUID(_ context.Context, _ uuid.UUID) (cored
 func (f *fakeCoreQuerier) GetLegalEntityByEntityID(_ context.Context, _ int64) (int64, error) {
 	return 0, nil
 }
-func (f *fakeCoreQuerier) GetNaturalPersonByEntityID(_ context.Context, _ int64) (coredb.NaturalPerson, error) {
-	return coredb.NaturalPerson{}, nil
+func (f *fakeCoreQuerier) GetNaturalPersonByEntityID(_ context.Context, _ int64) (coredb.GetNaturalPersonByEntityIDRow, error) {
+	return coredb.GetNaturalPersonByEntityIDRow{}, nil
 }
 func (f *fakeCoreQuerier) GetServiceAccountByEntityID(_ context.Context, _ int64) (coredb.ServiceAccount, error) {
 	return coredb.ServiceAccount{}, nil

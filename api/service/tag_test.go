@@ -353,6 +353,7 @@ func TestTagService_Search_NoFilter_Returns400Analog(t *testing.T) {
 func TestTagService_Search_AdminSeesAll(t *testing.T) {
 	svc, coreQ, tagQ, _, ownerID, _, _ := buildServiceWithTag(t)
 	actor := adminPrincipal(999)
+	tagQ.grantAdmin(actor.EntityID) // register as admin in mock access-fn simulation
 
 	ownerUUID := coreQ.entitiesByID[ownerID].Uuid
 	tags, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{

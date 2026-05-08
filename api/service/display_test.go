@@ -74,7 +74,7 @@ type singleTagQuerier struct {
 	errID int64
 }
 
-func (s *singleTagQuerier) CountTagsBySubjectEntityID(_ context.Context, _ int64) (int64, error) {
+func (s *singleTagQuerier) CountTagsBySubjectEntityID(_ context.Context, _ tagsdb.CountTagsBySubjectEntityIDParams) (int64, error) {
 	return 0, nil
 }
 func (s *singleTagQuerier) CreateTag(_ context.Context, _ tagsdb.CreateTagParams) (tagsdb.Tag, error) {
@@ -90,10 +90,10 @@ func (s *singleTagQuerier) GetTagByEntityID(_ context.Context, id int64) (tagsdb
 func (s *singleTagQuerier) GetTagByEntityUUID(_ context.Context, _ uuid.UUID) (tagsdb.GetTagByEntityUUIDRow, error) {
 	return tagsdb.GetTagByEntityUUIDRow{}, nil
 }
-func (s *singleTagQuerier) ListTagsBySubjectEntityID(_ context.Context, _ tagsdb.ListTagsBySubjectEntityIDParams) ([]tagsdb.Tag, error) {
+func (s *singleTagQuerier) ListTagsBySubjectEntityID(_ context.Context, _ tagsdb.ListTagsBySubjectEntityIDParams) ([]tagsdb.ListTagsBySubjectEntityIDRow, error) {
 	return nil, nil
 }
-func (s *singleTagQuerier) SearchTags(_ context.Context, _ tagsdb.SearchTagsParams) ([]tagsdb.Tag, error) {
+func (s *singleTagQuerier) SearchTags(_ context.Context, _ tagsdb.SearchTagsParams) ([]tagsdb.SearchTagsRow, error) {
 	return nil, nil
 }
 func (s *singleTagQuerier) UpdateTagColor(_ context.Context, _ tagsdb.UpdateTagColorParams) (tagsdb.Tag, error) {

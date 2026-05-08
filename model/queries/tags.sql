@@ -30,22 +30,31 @@ DELETE FROM tags
 WHERE entity_id = $1;
 
 -- name: ListTagsBySubjectEntityID :many
-SELECT entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at
-FROM tags
-WHERE subject_id = sqlc.arg('subject_id')
-  AND (sqlc.narg('purpose')::text IS NULL OR purpose = sqlc.narg('purpose')::text)
-ORDER BY created_at ASC;
+SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
+       t.created_at, t.updated_at, e.uuid
+FROM tags t
+JOIN entities e ON e.id = t.entity_id
+JOIN accessible_tag_ids_for_actor(@actor_entity_id) acc ON acc.entity_id = t.entity_id
+WHERE t.subject_id = @subject_id
+  AND (sqlc.narg('purpose')::text IS NULL OR t.purpose = sqlc.narg('purpose')::text)
+ORDER BY t.created_at ASC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: SearchTags :many
-SELECT entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at
-FROM tags
-WHERE (sqlc.narg('owner_id')::bigint IS NULL OR owner_id = sqlc.narg('owner_id')::bigint)
-  AND (sqlc.narg('subject_id')::bigint IS NULL OR subject_id = sqlc.narg('subject_id')::bigint)
-  AND (sqlc.narg('purpose')::text IS NULL OR purpose = sqlc.narg('purpose')::text)
-  AND (sqlc.narg('value')::text IS NULL OR value = sqlc.narg('value')::text)
-ORDER BY created_at ASC;
+SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
+       t.created_at, t.updated_at, e.uuid
+FROM tags t
+JOIN entities e ON e.id = t.entity_id
+JOIN accessible_tag_ids_for_actor(@actor_entity_id) acc ON acc.entity_id = t.entity_id
+WHERE (sqlc.narg('owner_id')::bigint IS NULL OR t.owner_id = sqlc.narg('owner_id')::bigint)
+  AND (sqlc.narg('subject_id')::bigint IS NULL OR t.subject_id = sqlc.narg('subject_id')::bigint)
+  AND (sqlc.narg('purpose')::text IS NULL OR t.purpose = sqlc.narg('purpose')::text)
+  AND (sqlc.narg('value')::text IS NULL OR t.value = sqlc.narg('value')::text)
+ORDER BY t.created_at ASC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountTagsBySubjectEntityID :one
 SELECT COUNT(*)
-FROM tags
-WHERE subject_id = $1;
+FROM tags t
+JOIN accessible_tag_ids_for_actor(@actor_entity_id) acc ON acc.entity_id = t.entity_id
+WHERE t.subject_id = @subject_id;

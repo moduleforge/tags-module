@@ -14,12 +14,18 @@ import (
 
 const countTagsBySubjectEntityID = `-- name: CountTagsBySubjectEntityID :one
 SELECT COUNT(*)
-FROM tags
-WHERE subject_id = $1
+FROM tags t
+JOIN accessible_tag_ids_for_actor($1) acc ON acc.entity_id = t.entity_id
+WHERE t.subject_id = $2
 `
 
-func (q *Queries) CountTagsBySubjectEntityID(ctx context.Context, subjectID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countTagsBySubjectEntityID, subjectID)
+type CountTagsBySubjectEntityIDParams struct {
+	ActorEntityID int64 `json:"actor_entity_id"`
+	SubjectID     int64 `json:"subject_id"`
+}
+
+func (q *Queries) CountTagsBySubjectEntityID(ctx context.Context, arg CountTagsBySubjectEntityIDParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countTagsBySubjectEntityID, arg.ActorEntityID, arg.SubjectID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -137,27 +143,52 @@ func (q *Queries) GetTagByEntityUUID(ctx context.Context, argUuid uuid.UUID) (Ge
 }
 
 const listTagsBySubjectEntityID = `-- name: ListTagsBySubjectEntityID :many
-SELECT entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at
-FROM tags
-WHERE subject_id = $1
-  AND ($2::text IS NULL OR purpose = $2::text)
-ORDER BY created_at ASC
+SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
+       t.created_at, t.updated_at, e.uuid
+FROM tags t
+JOIN entities e ON e.id = t.entity_id
+JOIN accessible_tag_ids_for_actor($1) acc ON acc.entity_id = t.entity_id
+WHERE t.subject_id = $2
+  AND ($3::text IS NULL OR t.purpose = $3::text)
+ORDER BY t.created_at ASC
+LIMIT $5 OFFSET $4
 `
 
 type ListTagsBySubjectEntityIDParams struct {
-	SubjectID int64       `json:"subject_id"`
-	Purpose   pgtype.Text `json:"purpose"`
+	ActorEntityID int64       `json:"actor_entity_id"`
+	SubjectID     int64       `json:"subject_id"`
+	Purpose       pgtype.Text `json:"purpose"`
+	Offset        int32       `json:"offset"`
+	Limit         int32       `json:"limit"`
 }
 
-func (q *Queries) ListTagsBySubjectEntityID(ctx context.Context, arg ListTagsBySubjectEntityIDParams) ([]Tag, error) {
-	rows, err := q.db.Query(ctx, listTagsBySubjectEntityID, arg.SubjectID, arg.Purpose)
+type ListTagsBySubjectEntityIDRow struct {
+	EntityID  int64              `json:"entity_id"`
+	OwnerID   int64              `json:"owner_id"`
+	SubjectID int64              `json:"subject_id"`
+	Purpose   string             `json:"purpose"`
+	Value     string             `json:"value"`
+	Color     pgtype.Text        `json:"color"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Uuid      uuid.UUID          `json:"uuid"`
+}
+
+func (q *Queries) ListTagsBySubjectEntityID(ctx context.Context, arg ListTagsBySubjectEntityIDParams) ([]ListTagsBySubjectEntityIDRow, error) {
+	rows, err := q.db.Query(ctx, listTagsBySubjectEntityID,
+		arg.ActorEntityID,
+		arg.SubjectID,
+		arg.Purpose,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Tag
+	var items []ListTagsBySubjectEntityIDRow
 	for rows.Next() {
-		var i Tag
+		var i ListTagsBySubjectEntityIDRow
 		if err := rows.Scan(
 			&i.EntityID,
 			&i.OwnerID,
@@ -167,6 +198,7 @@ func (q *Queries) ListTagsBySubjectEntityID(ctx context.Context, arg ListTagsByS
 			&i.Color,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Uuid,
 		); err != nil {
 			return nil, err
 		}
@@ -179,36 +211,58 @@ func (q *Queries) ListTagsBySubjectEntityID(ctx context.Context, arg ListTagsByS
 }
 
 const searchTags = `-- name: SearchTags :many
-SELECT entity_id, owner_id, subject_id, purpose, value, color, created_at, updated_at
-FROM tags
-WHERE ($1::bigint IS NULL OR owner_id = $1::bigint)
-  AND ($2::bigint IS NULL OR subject_id = $2::bigint)
-  AND ($3::text IS NULL OR purpose = $3::text)
-  AND ($4::text IS NULL OR value = $4::text)
-ORDER BY created_at ASC
+SELECT t.entity_id, t.owner_id, t.subject_id, t.purpose, t.value, t.color,
+       t.created_at, t.updated_at, e.uuid
+FROM tags t
+JOIN entities e ON e.id = t.entity_id
+JOIN accessible_tag_ids_for_actor($1) acc ON acc.entity_id = t.entity_id
+WHERE ($2::bigint IS NULL OR t.owner_id = $2::bigint)
+  AND ($3::bigint IS NULL OR t.subject_id = $3::bigint)
+  AND ($4::text IS NULL OR t.purpose = $4::text)
+  AND ($5::text IS NULL OR t.value = $5::text)
+ORDER BY t.created_at ASC
+LIMIT $7 OFFSET $6
 `
 
 type SearchTagsParams struct {
-	OwnerID   pgtype.Int8 `json:"owner_id"`
-	SubjectID pgtype.Int8 `json:"subject_id"`
-	Purpose   pgtype.Text `json:"purpose"`
-	Value     pgtype.Text `json:"value"`
+	ActorEntityID int64       `json:"actor_entity_id"`
+	OwnerID       pgtype.Int8 `json:"owner_id"`
+	SubjectID     pgtype.Int8 `json:"subject_id"`
+	Purpose       pgtype.Text `json:"purpose"`
+	Value         pgtype.Text `json:"value"`
+	Offset        int32       `json:"offset"`
+	Limit         int32       `json:"limit"`
 }
 
-func (q *Queries) SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, error) {
+type SearchTagsRow struct {
+	EntityID  int64              `json:"entity_id"`
+	OwnerID   int64              `json:"owner_id"`
+	SubjectID int64              `json:"subject_id"`
+	Purpose   string             `json:"purpose"`
+	Value     string             `json:"value"`
+	Color     pgtype.Text        `json:"color"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	Uuid      uuid.UUID          `json:"uuid"`
+}
+
+func (q *Queries) SearchTags(ctx context.Context, arg SearchTagsParams) ([]SearchTagsRow, error) {
 	rows, err := q.db.Query(ctx, searchTags,
+		arg.ActorEntityID,
 		arg.OwnerID,
 		arg.SubjectID,
 		arg.Purpose,
 		arg.Value,
+		arg.Offset,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Tag
+	var items []SearchTagsRow
 	for rows.Next() {
-		var i Tag
+		var i SearchTagsRow
 		if err := rows.Scan(
 			&i.EntityID,
 			&i.OwnerID,
@@ -218,6 +272,7 @@ func (q *Queries) SearchTags(ctx context.Context, arg SearchTagsParams) ([]Tag, 
 			&i.Color,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Uuid,
 		); err != nil {
 			return nil, err
 		}
