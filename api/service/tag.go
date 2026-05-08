@@ -17,6 +17,7 @@ import (
 	"github.com/moduleforge/core-api/observer"
 	"github.com/moduleforge/core-api/txhelper"
 	coreservice "github.com/moduleforge/core-api/service"
+	"github.com/moduleforge/core-api/types"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
 )
@@ -52,6 +53,30 @@ type SearchTagsFilter struct {
 	Value             *string
 }
 
+// Pagination carries paged-result query parameters. Limit defaults to 50 if
+// unset; Offset defaults to 0. Limit is capped at 200.
+type Pagination struct {
+	Limit  int32
+	Offset int32
+}
+
+func (p Pagination) normalize() (limit, offset int32) {
+	switch {
+	case p.Limit <= 0:
+		limit = 50
+	case p.Limit > 200:
+		limit = 200
+	default:
+		limit = p.Limit
+	}
+	if p.Offset < 0 {
+		offset = 0
+	} else {
+		offset = p.Offset
+	}
+	return
+}
+
 // Tag is the service-layer representation of a tag, using public UUIDs.
 type Tag struct {
 	EntityUUID  uuid.UUID
@@ -68,8 +93,8 @@ type Tag struct {
 type TagServicer interface {
 	Create(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, in CreateTagInput) (Tag, error)
 	GetByUUID(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, entityUUID uuid.UUID) (Tag, error)
-	Search(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, filter SearchTagsFilter) ([]Tag, error)
-	ListBySubject(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, subjectUUID uuid.UUID, purposeFilter *string) ([]Tag, error)
+	Search(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, filter SearchTagsFilter, p Pagination) ([]Tag, error)
+	ListBySubject(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, subjectUUID uuid.UUID, purposeFilter *string, p Pagination) ([]Tag, error)
 	UpdateByUUID(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, entityUUID uuid.UUID, in UpdateTagInput) (Tag, error)
 	DeleteByUUID(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, entityUUID uuid.UUID) error
 }
@@ -80,6 +105,7 @@ type TagService struct {
 	db             txhelper.DB
 	az             authz.Authorizer
 	obs            *observer.ObserverGroup
+	resolver       *types.Resolver
 	newCoreQuerier func(pgx.Tx) coredb.Querier // injectable for tests; defaults to coredb.New
 	newTagQuerier  func(pgx.Tx) tagsdb.Querier  // injectable for tests; defaults to tagsdb.New
 }
@@ -110,8 +136,9 @@ func (s *TagService) Create(
 	actor coreservice.Principal,
 	in CreateTagInput,
 ) (Tag, error) {
-	// 1. Authorize.
-	if err := s.az.Authorize(ctx, "create", nil); err != nil {
+	// 1. Authorize against the tag type ID (entity-level create convention).
+	tagTypeID := s.resolver.IDForSlugMust("tag")
+	if err := s.az.Authorize(ctx, "create", &tagTypeID); err != nil {
 		return Tag{}, err
 	}
 
@@ -152,12 +179,6 @@ func (s *TagService) Create(
 		return Tag{}, fmt.Errorf("tag.Create resolve owner: %w", err)
 	}
 
-	// Resolve the type ID for 'tag' (pre-tx read).
-	tagType, err := coreQ.GetTypeBySlug(ctx, "tag")
-	if err != nil {
-		return Tag{}, fmt.Errorf("tag.Create resolve type: %w", err)
-	}
-
 	// 2. Mutate inside a transaction; observers participate in the same tx.
 	var result Tag
 	var entityID int64
@@ -167,7 +188,7 @@ func (s *TagService) Create(
 		txTagQ := s.tagQuerier(tx)
 
 		// Insert entity row.
-		entity, err := txCoreQ.CreateEntity(ctx, tagType.ID)
+		entity, err := txCoreQ.CreateEntity(ctx, tagTypeID)
 		if err != nil {
 			return fmt.Errorf("tag.Create entity: %w", err)
 		}
@@ -260,9 +281,11 @@ func (s *TagService) Search(
 	tagQ tagsdb.Querier,
 	actor coreservice.Principal,
 	filter SearchTagsFilter,
+	p Pagination,
 ) ([]Tag, error) {
-	// 1. Authorize.
-	if err := s.az.Authorize(ctx, "list", &actor.EntityID); err != nil {
+	// 1. Authorize against the tag type ID (entity-level list convention).
+	tagTypeID := s.resolver.IDForSlugMust("tag")
+	if err := s.az.Authorize(ctx, "list", &tagTypeID); err != nil {
 		return nil, err
 	}
 
@@ -270,11 +293,11 @@ func (s *TagService) Search(
 		return nil, fmt.Errorf("%w: at least one of owner or subject is required", ErrInvalidInput)
 	}
 
+	limit, offset := p.normalize()
 	params := tagsdb.SearchTagsParams{
 		ActorEntityID: actor.EntityID,
-		// Phase D placeholder; full pagination plumbing lands in Phase E.
-		Limit:  1000,
-		Offset: 0,
+		Limit:         limit,
+		Offset:        offset,
 	}
 
 	if filter.OwnerEntityUUID != nil {
@@ -341,6 +364,7 @@ func (s *TagService) ListBySubject(
 	actor coreservice.Principal,
 	subjectUUID uuid.UUID,
 	purposeFilter *string,
+	p Pagination,
 ) ([]Tag, error) {
 	// 1. Resolve the subject entity first so we can authorize against its ID.
 	subjectEntity, err := coreQ.GetEntityByUUID(ctx, subjectUUID)
@@ -361,13 +385,13 @@ func (s *TagService) ListBySubject(
 		purposeParam = pgtype.Text{String: *purposeFilter, Valid: true}
 	}
 
+	limit, offset := p.normalize()
 	rows, err := tagQ.ListTagsBySubjectEntityID(ctx, tagsdb.ListTagsBySubjectEntityIDParams{
 		ActorEntityID: actor.EntityID,
 		SubjectID:     subjectEntity.ID,
 		Purpose:       purposeParam,
-		// Phase D placeholder; full pagination plumbing lands in Phase E.
-		Limit:  1000,
-		Offset: 0,
+		Limit:         limit,
+		Offset:        offset,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tag.ListBySubject query: %w", err)

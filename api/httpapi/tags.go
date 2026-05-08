@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -125,12 +126,15 @@ func (h *handlers) handleSearchTags(w http.ResponseWriter, r *http.Request) {
 		filter.Value = &s
 	}
 
+	pag := parsePagination(q)
+
 	tags, err := h.d.Services.Tag.Search(
 		r.Context(),
 		h.d.CoreQuerier,
 		h.d.Services.Querier(),
 		*p,
 		filter,
+		pag,
 	)
 	if err != nil {
 		writeServiceErr(w, err)
@@ -264,4 +268,22 @@ func (h *handlers) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// parsePagination reads ?limit=&offset= from a query-string map and returns a
+// Pagination value. Non-numeric or absent values are treated as zero (Pagination
+// will apply defaults via normalize()).
+func parsePagination(q interface{ Get(string) string }) service.Pagination {
+	var p service.Pagination
+	if s := q.Get("limit"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 32); err == nil {
+			p.Limit = int32(v)
+		}
+	}
+	if s := q.Get("offset"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 32); err == nil {
+			p.Offset = int32(v)
+		}
+	}
+	return p
 }

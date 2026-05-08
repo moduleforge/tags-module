@@ -10,6 +10,7 @@ import (
 
 	"github.com/moduleforge/core-api/observer"
 	coreservice "github.com/moduleforge/core-api/service"
+	"github.com/moduleforge/core-api/types"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
 )
@@ -24,6 +25,16 @@ func userPrincipal(entityID int64) coreservice.Principal {
 	return coreservice.Principal{EntityID: entityID, UserID: entityID, IsAdmin: false}
 }
 
+// mustResolver builds a types.Resolver from a mockCoreQuerier. Panics if the
+// resolver cannot be constructed (indicates a bug in the mock setup).
+func mustResolver(coreQ *mockCoreQuerier) *types.Resolver {
+	r, err := types.New(context.Background(), coreQ)
+	if err != nil {
+		panic("mustResolver: " + err.Error())
+	}
+	return r
+}
+
 // buildService constructs a TagService with allow-all authz and a no-op observer,
 // wired to the provided mocks. Returns a recording observer for assertion.
 func buildService(coreQ *mockCoreQuerier, tagQ *mockTagQuerier) (*TagService, *recordingObserver) {
@@ -33,6 +44,7 @@ func buildService(coreQ *mockCoreQuerier, tagQ *mockTagQuerier) (*TagService, *r
 		db:             newFakeDB(),
 		az:             allowAllAuthz{},
 		obs:            obs,
+		resolver:       mustResolver(coreQ),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -147,6 +159,7 @@ func TestTagService_Create_AuthorizeDenied(t *testing.T) {
 		db:             newFakeDB(),
 		az:             denyAllAuthz{err: authzErr},
 		obs:            observer.NewObserverGroup(),
+		resolver:       mustResolver(coreQ),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -344,7 +357,7 @@ func TestTagService_Search_NoFilter_Returns400Analog(t *testing.T) {
 	svc, _ := buildService(coreQ, tagQ)
 	actor := userPrincipal(1)
 
-	_, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{})
+	_, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{}, Pagination{})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("want ErrInvalidInput, got %v", err)
 	}
@@ -358,7 +371,7 @@ func TestTagService_Search_AdminSeesAll(t *testing.T) {
 	ownerUUID := coreQ.entitiesByID[ownerID].Uuid
 	tags, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{
 		OwnerEntityUUID: &ownerUUID,
-	})
+	}, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -376,7 +389,7 @@ func TestTagService_Search_NonAdminFilteredToOwned(t *testing.T) {
 	actor := userPrincipal(subjectID)
 	tags, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{
 		OwnerEntityUUID: &ownerUUID,
-	})
+	}, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -388,7 +401,7 @@ func TestTagService_Search_NonAdminFilteredToOwned(t *testing.T) {
 	actor2 := userPrincipal(888)
 	tags2, err := svc.Search(context.Background(), coreQ, tagQ, actor2, SearchTagsFilter{
 		OwnerEntityUUID: &ownerUUID,
-	})
+	}, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -404,7 +417,7 @@ func TestTagService_ListBySubject_SubjectSeesAll(t *testing.T) {
 	actor := userPrincipal(subjectID)
 
 	subjectUUID := coreQ.entitiesByID[subjectID].Uuid
-	tags, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, subjectUUID, nil)
+	tags, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, subjectUUID, nil, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -420,7 +433,7 @@ func TestTagService_ListBySubject_ThirdPartySeeOnlyOwned(t *testing.T) {
 
 	// Owner is also owner of the tag — should see their own tag.
 	actor := userPrincipal(ownerID)
-	tags, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, subjectUUID, nil)
+	tags, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, subjectUUID, nil, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -430,7 +443,7 @@ func TestTagService_ListBySubject_ThirdPartySeeOnlyOwned(t *testing.T) {
 
 	// Unrelated actor sees nothing.
 	actor2 := userPrincipal(999)
-	tags2, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor2, subjectUUID, nil)
+	tags2, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor2, subjectUUID, nil, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -445,7 +458,7 @@ func TestTagService_ListBySubject_NotFound(t *testing.T) {
 	svc, _ := buildService(coreQ, tagQ)
 	actor := userPrincipal(1)
 
-	_, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, uuid.New(), nil)
+	_, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, uuid.New(), nil, Pagination{})
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}

@@ -22,11 +22,15 @@ func (h *handlers) handleSubjectTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	q := r.URL.Query()
+
 	var purposeFilter *string
-	if pStr := r.URL.Query().Get("purpose"); pStr != "" {
+	if pStr := q.Get("purpose"); pStr != "" {
 		s := pStr
 		purposeFilter = &s
 	}
+
+	pag := parsePagination(q)
 
 	tags, err := h.d.Services.Tag.ListBySubject(
 		r.Context(),
@@ -35,6 +39,7 @@ func (h *handlers) handleSubjectTags(w http.ResponseWriter, r *http.Request) {
 		*p,
 		subjectUUID,
 		purposeFilter,
+		pag,
 	)
 	if err != nil {
 		writeServiceErr(w, err)

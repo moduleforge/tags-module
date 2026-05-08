@@ -9,6 +9,7 @@ import (
 	"github.com/moduleforge/core-api/authz"
 	"github.com/moduleforge/core-api/observer"
 	"github.com/moduleforge/core-api/txhelper"
+	"github.com/moduleforge/core-api/types"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
 )
@@ -39,7 +40,10 @@ type Services struct {
 //
 // obs receives in-tx and post-commit notifications for every mutation;
 // pass observer.NewObserverGroup() for a no-op group.
-func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Authorizer, obs *observer.ObserverGroup) *Services {
+//
+// resolver is the startup-time type-ID cache; used to resolve "tag" to its
+// internal type ID for Authorize targets.
+func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Authorizer, obs *observer.ObserverGroup, resolver *types.Resolver) *Services {
 	newCoreQ := func(tx pgx.Tx) coredb.Querier { return coredb.New(tx) }
 	newTagQ := func(tx pgx.Tx) tagsdb.Querier { return tagsdb.New(tx) }
 	return &Services{
@@ -47,6 +51,7 @@ func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Aut
 			db:             db,
 			az:             az,
 			obs:            obs,
+			resolver:       resolver,
 			newCoreQuerier: newCoreQ,
 			newTagQuerier:  newTagQ,
 		},
