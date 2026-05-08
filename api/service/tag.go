@@ -229,7 +229,7 @@ func (s *TagService) Create(
 	}
 
 	// 3. Post-commit observers (optional for tags — no search-index or cache consumer yet).
-	s.obs.ObserveAfterCommit(ctx, "create", "tag", &entityID, nil, tagSnapshot(result))
+	s.obs.ObserveAfterCommit(ctx, "create", "tag", &entityID, tagSnapshot(result))
 
 	return result, nil
 }
@@ -509,7 +509,7 @@ func (s *TagService) UpdateByUUID(
 
 	// 3. Post-commit observers — carry the post-update snapshot so that future
 	// cache-invalidation or search-index-sync observers have the after-state.
-	s.obs.ObserveAfterCommit(ctx, "update", "tag", &entityID, nil, tagSnapshot(result))
+	s.obs.ObserveAfterCommit(ctx, "update", "tag", &entityID, tagSnapshot(result))
 	return result, nil
 }
 
@@ -578,7 +578,7 @@ func (s *TagService) DeleteByUUID(
 
 	// 3. Post-commit observers — after is nil intentionally: the row no longer
 	// exists, so there is no meaningful post-state to carry.
-	s.obs.ObserveAfterCommit(ctx, "delete", "tag", &entityID, nil, nil)
+	s.obs.ObserveAfterCommit(ctx, "delete", "tag", &entityID, nil)
 	return nil
 }
 
