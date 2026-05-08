@@ -36,7 +36,6 @@ All 6 planned phases (bootstrap → model → API → GUI → wire into users-mo
 ## Cross-cutting framework — deferred from Phase 5 review
 
 - **`actor coreservice.Principal` parameter on read methods** — currently retained for inline ownership filtering. Removing requires either an `IsAdmin` opctx key or moving ownership checks into the Authorizer. Defer.
-- **`ObserveAfterCommit` calls pass `nil, nil`** (code-reviewer L2) — Update / Delete post-commit observers receive no useful data. Future cache-invalidation or search-index-sync observers would prefer at least the `after` snapshot. Pass `after` (or recompute it from the in-tx data) when convenient.
 
 ## Component workbench (Ladle)
 
