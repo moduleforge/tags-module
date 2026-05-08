@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/moduleforge/core-api/authz"
+	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/observer"
 	"github.com/moduleforge/core-api/txhelper"
 	coreservice "github.com/moduleforge/core-api/service"
@@ -106,6 +107,7 @@ type TagService struct {
 	az             authz.Authorizer
 	obs            *observer.ObserverGroup
 	resolver       *types.Resolver
+	entityResolver *entity.Resolver
 	newCoreQuerier func(pgx.Tx) coredb.Querier // injectable for tests; defaults to coredb.New
 	newTagQuerier  func(pgx.Tx) tagsdb.Querier  // injectable for tests; defaults to tagsdb.New
 }
@@ -240,10 +242,16 @@ func (s *TagService) GetByUUID(
 	actor coreservice.Principal,
 	entityUUID uuid.UUID,
 ) (Tag, error) {
-	// 1. Authorize against the actor's own entity ID so the Authorizer's
-	// "non-admin can access only own data" rule passes. Inline ownership
-	// filtering below further restricts what the actor actually sees.
-	if err := s.az.Authorize(ctx, "read", &actor.EntityID); err != nil {
+	// 1. Resolve UUID → internal entity ID. The default not-found policy
+	// returns ErrForbidden (masking existence); apps can opt this resource
+	// into 404 via EntityResolver.AllowNotFound.
+	tagEntityID, err := s.entityResolver.Resolve(ctx, coreQ, entityUUID, "tag")
+	if err != nil {
+		return Tag{}, err
+	}
+
+	// 2. Authorize the read against the resolved entity ID.
+	if err := s.az.Authorize(ctx, "read", &tagEntityID); err != nil {
 		return Tag{}, err
 	}
 
@@ -255,7 +263,9 @@ func (s *TagService) GetByUUID(
 		return Tag{}, fmt.Errorf("tag.GetByUUID: %w", err)
 	}
 
-	// Authz: admin OR owner OR subject → OK, else 404.
+	// 3. Inline ownership filter: admin OR owner OR subject → OK, else 404.
+	// The Authorizer gate above is binary; this filter enforces the actual
+	// visibility rule for tags' two-principal model (owner + subject).
 	if !actor.IsAdmin && actor.EntityID != row.OwnerID && actor.EntityID != row.SubjectID {
 		return Tag{}, ErrNotFound
 	}

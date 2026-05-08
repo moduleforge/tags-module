@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/moduleforge/core-api/authz"
+	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/observer"
 	"github.com/moduleforge/core-api/txhelper"
 	"github.com/moduleforge/core-api/types"
@@ -43,7 +44,11 @@ type Services struct {
 //
 // resolver is the startup-time type-ID cache; used to resolve "tag" to its
 // internal type ID for Authorize targets.
-func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Authorizer, obs *observer.ObserverGroup, resolver *types.Resolver) *Services {
+//
+// entityResolver translates an entity UUID to its internal entity ID for
+// UUID-keyed reads (GetByUUID), applying the configured per-resource not-
+// found policy (default: 403 to mask existence).
+func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Authorizer, obs *observer.ObserverGroup, resolver *types.Resolver, entityResolver *entity.Resolver) *Services {
 	newCoreQ := func(tx pgx.Tx) coredb.Querier { return coredb.New(tx) }
 	newTagQ := func(tx pgx.Tx) tagsdb.Querier { return tagsdb.New(tx) }
 	return &Services{
@@ -52,6 +57,7 @@ func New(coreQ coredb.Querier, tagQ tagsdb.Querier, db txhelper.DB, az authz.Aut
 			az:             az,
 			obs:            obs,
 			resolver:       resolver,
+			entityResolver: entityResolver,
 			newCoreQuerier: newCoreQ,
 			newTagQuerier:  newTagQ,
 		},

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/observer"
 	coreservice "github.com/moduleforge/core-api/service"
 	"github.com/moduleforge/core-api/types"
@@ -45,6 +46,7 @@ func buildService(coreQ *mockCoreQuerier, tagQ *mockTagQuerier) (*TagService, *r
 		az:             allowAllAuthz{},
 		obs:            obs,
 		resolver:       mustResolver(coreQ),
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -160,6 +162,7 @@ func TestTagService_Create_AuthorizeDenied(t *testing.T) {
 		az:             denyAllAuthz{err: authzErr},
 		obs:            observer.NewObserverGroup(),
 		resolver:       mustResolver(coreQ),
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -186,6 +189,7 @@ func TestTagService_Update_AuthorizeDenied(t *testing.T) {
 		db:             newFakeDB(),
 		az:             denyAllAuthz{err: authzErr},
 		obs:            observer.NewObserverGroup(),
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -205,6 +209,7 @@ func TestTagService_Delete_AuthorizeDenied(t *testing.T) {
 		db:             newFakeDB(),
 		az:             denyAllAuthz{err: authzErr},
 		obs:            observer.NewObserverGroup(),
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -227,6 +232,7 @@ func TestTagService_Update_InTxObserverError_Propagates(t *testing.T) {
 		db:             newFakeDB(),
 		az:             allowAllAuthz{},
 		obs:            obs,
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -252,6 +258,7 @@ func TestTagService_Update_ObserverCalled(t *testing.T) {
 		db:             newFakeDB(),
 		az:             allowAllAuthz{},
 		obs:            obs,
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -325,9 +332,13 @@ func TestTagService_Get_NotFound(t *testing.T) {
 	svc, _ := buildService(coreQ, tagQ)
 	actor := adminPrincipal(1)
 
+	// Default EntityResolver policy: returns ErrForbidden when the UUID is
+	// not found, masking entity existence (privacy default per Phase E).
+	// Resources opting into 404 transparency (e.g. via AllowNotFound("tag"))
+	// would return ErrNotFound; tags has not opted in.
 	_, err := svc.GetByUUID(context.Background(), coreQ, tagQ, actor, uuid.New())
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("want ErrNotFound, got %v", err)
+	if !errors.Is(err, entity.ErrForbidden) {
+		t.Errorf("want entity.ErrForbidden (UUID-not-found masked as 403), got %v", err)
 	}
 }
 
@@ -338,6 +349,7 @@ func TestTagService_Get_AuthorizeDenied(t *testing.T) {
 		db:             newFakeDB(),
 		az:             denyAllAuthz{err: authzErr},
 		obs:            observer.NewObserverGroup(),
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
@@ -599,6 +611,7 @@ func TestTagService_Delete_ObserverCalled(t *testing.T) {
 		db:             newFakeDB(),
 		az:             allowAllAuthz{},
 		obs:            obs,
+		entityResolver: entity.NewResolver(),
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
