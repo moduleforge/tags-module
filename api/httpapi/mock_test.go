@@ -40,11 +40,11 @@ func (f *fakeTagService) GetByUUID(_ context.Context, _ coredb.Querier, _ tagsdb
 	return f.tag, f.err
 }
 
-func (f *fakeTagService) Search(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ service.SearchTagsFilter) ([]service.Tag, error) {
+func (f *fakeTagService) Search(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ service.SearchTagsFilter, _ service.Pagination) ([]service.Tag, error) {
 	return f.tags, f.err
 }
 
-func (f *fakeTagService) ListBySubject(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ uuid.UUID, _ *string) ([]service.Tag, error) {
+func (f *fakeTagService) ListBySubject(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ uuid.UUID, _ *string, _ service.Pagination) ([]service.Tag, error) {
 	return f.tags, f.err
 }
 
