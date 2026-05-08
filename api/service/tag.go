@@ -16,8 +16,8 @@ import (
 	"github.com/moduleforge/core-api/authz"
 	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/observer"
-	"github.com/moduleforge/core-api/txhelper"
 	coreservice "github.com/moduleforge/core-api/service"
+	"github.com/moduleforge/core-api/txhelper"
 	"github.com/moduleforge/core-api/types"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
@@ -109,7 +109,7 @@ type TagService struct {
 	resolver       *types.Resolver
 	entityResolver *entity.Resolver
 	newCoreQuerier func(pgx.Tx) coredb.Querier // injectable for tests; defaults to coredb.New
-	newTagQuerier  func(pgx.Tx) tagsdb.Querier  // injectable for tests; defaults to tagsdb.New
+	newTagQuerier  func(pgx.Tx) tagsdb.Querier // injectable for tests; defaults to tagsdb.New
 }
 
 // Compile-time assertion.
@@ -507,8 +507,9 @@ func (s *TagService) UpdateByUUID(
 		return Tag{}, err
 	}
 
-	// 3. Post-commit observers.
-	s.obs.ObserveAfterCommit(ctx, "update", "tag", &entityID, nil, nil)
+	// 3. Post-commit observers — carry the post-update snapshot so that future
+	// cache-invalidation or search-index-sync observers have the after-state.
+	s.obs.ObserveAfterCommit(ctx, "update", "tag", &entityID, nil, tagSnapshot(result))
 	return result, nil
 }
 
@@ -575,7 +576,8 @@ func (s *TagService) DeleteByUUID(
 		return err
 	}
 
-	// 3. Post-commit observers.
+	// 3. Post-commit observers — after is nil intentionally: the row no longer
+	// exists, so there is no meaningful post-state to carry.
 	s.obs.ObserveAfterCommit(ctx, "delete", "tag", &entityID, nil, nil)
 	return nil
 }
