@@ -10,20 +10,15 @@ import (
 
 	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/observer"
-	coreservice "github.com/moduleforge/core-api/service"
+	"github.com/moduleforge/core-api/opctx"
 	"github.com/moduleforge/core-api/types"
 	coredb "github.com/moduleforge/core-model/db"
 	tagsdb "github.com/moduleforge/tags-model/db"
 )
 
-// adminPrincipal returns an admin Principal.
-func adminPrincipal(entityID int64) coreservice.Principal {
-	return coreservice.Principal{EntityID: entityID, UserID: entityID, IsAdmin: true}
-}
-
-// userPrincipal returns a non-admin Principal.
-func userPrincipal(entityID int64) coreservice.Principal {
-	return coreservice.Principal{EntityID: entityID, UserID: entityID, IsAdmin: false}
+// actorCtx returns a context with the given entity ID set as the actor.
+func actorCtx(entityID int64) context.Context {
+	return opctx.WithActor(context.Background(), entityID)
 }
 
 // mustResolver builds a types.Resolver from a mockCoreQuerier. Panics if the
@@ -86,9 +81,8 @@ func TestTagService_Create_MissingPurpose(t *testing.T) {
 	coreQ := newMockCoreQuerier()
 	tagQ := newMockTagQuerier()
 	svc, _ := buildService(coreQ, tagQ)
-	actor := userPrincipal(1)
 
-	_, err := svc.Create(context.Background(), coreQ, actor, CreateTagInput{
+	_, err := svc.Create(actorCtx(1), coreQ, CreateTagInput{
 		SubjectEntityUUID: uuid.New(),
 		Purpose:           "",
 		Value:             "x",
@@ -102,9 +96,8 @@ func TestTagService_Create_MissingValue(t *testing.T) {
 	coreQ := newMockCoreQuerier()
 	tagQ := newMockTagQuerier()
 	svc, _ := buildService(coreQ, tagQ)
-	actor := userPrincipal(1)
 
-	_, err := svc.Create(context.Background(), coreQ, actor, CreateTagInput{
+	_, err := svc.Create(actorCtx(1), coreQ, CreateTagInput{
 		SubjectEntityUUID: uuid.New(),
 		Purpose:           "label",
 		Value:             "",
@@ -118,10 +111,9 @@ func TestTagService_Create_InvalidColor(t *testing.T) {
 	coreQ := newMockCoreQuerier()
 	tagQ := newMockTagQuerier()
 	svc, _ := buildService(coreQ, tagQ)
-	actor := userPrincipal(1)
 	badColor := "#ZZZZZZZZ"
 
-	_, err := svc.Create(context.Background(), coreQ, actor, CreateTagInput{
+	_, err := svc.Create(actorCtx(1), coreQ, CreateTagInput{
 		SubjectEntityUUID: uuid.New(),
 		Purpose:           "label",
 		Value:             "v",
@@ -139,10 +131,9 @@ func TestTagService_Create_SubjectNotFound(t *testing.T) {
 
 	// Seed owner entity.
 	_, ownerID := coreQ.seedEntity("natural_person")
-	actor := userPrincipal(ownerID)
 
 	// Unknown subject UUID.
-	_, err := svc.Create(context.Background(), coreQ, actor, CreateTagInput{
+	_, err := svc.Create(actorCtx(ownerID), coreQ, CreateTagInput{
 		SubjectEntityUUID: uuid.New(), // not seeded
 		Purpose:           "label",
 		Value:             "v",
@@ -167,9 +158,8 @@ func TestTagService_Create_AuthorizeDenied(t *testing.T) {
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
-	actor := userPrincipal(1)
 
-	_, err := svc.Create(context.Background(), coreQ, actor, CreateTagInput{
+	_, err := svc.Create(actorCtx(1), coreQ, CreateTagInput{
 		SubjectEntityUUID: uuid.New(),
 		Purpose:           "label",
 		Value:             "v",
@@ -194,10 +184,9 @@ func TestTagService_Update_AuthorizeDenied(t *testing.T) {
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
-	actor := adminPrincipal(999)
 	color := "#FF0000FF"
 
-	_, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &color})
+	_, err := svc.UpdateByUUID(actorCtx(999), coreQ, tagUUID, UpdateTagInput{Color: &color})
 	if !errors.Is(err, authzErr) {
 		t.Errorf("want authz error, got %v", err)
 	}
@@ -214,9 +203,8 @@ func TestTagService_Delete_AuthorizeDenied(t *testing.T) {
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
-	actor := adminPrincipal(999)
 
-	err := svc.DeleteByUUID(context.Background(), coreQ, actor, tagUUID)
+	err := svc.DeleteByUUID(actorCtx(999), coreQ, tagUUID)
 	if !errors.Is(err, authzErr) {
 		t.Errorf("want authz error, got %v", err)
 	}
@@ -237,10 +225,9 @@ func TestTagService_Update_InTxObserverError_Propagates(t *testing.T) {
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
-	actor := userPrincipal(ownerID)
 	color := "#FF0000FF"
 
-	_, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &color})
+	_, err := svc.UpdateByUUID(actorCtx(ownerID), coreQ, tagUUID, UpdateTagInput{Color: &color})
 	if !errors.Is(err, obsErr) {
 		t.Errorf("want observer error propagated, got %v", err)
 	}
@@ -263,10 +250,9 @@ func TestTagService_Update_ObserverCalled(t *testing.T) {
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
-	actor := userPrincipal(ownerID)
 	color := "#FF0000FF"
 
-	_, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &color})
+	_, err := svc.UpdateByUUID(actorCtx(ownerID), coreQ, tagUUID, UpdateTagInput{Color: &color})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -286,9 +272,9 @@ func TestTagService_Update_ObserverCalled(t *testing.T) {
 
 func TestTagService_Get_AdminSeesAll(t *testing.T) {
 	svc, coreQ, tagQ, tagUUID, _, _, _ := buildServiceWithTag(t)
-	actor := adminPrincipal(999) // not owner or subject
+	tagQ.grantAdmin(999) // register as admin in mock access-fn simulation
 
-	tag, err := svc.GetByUUID(context.Background(), coreQ, tagQ, actor, tagUUID)
+	tag, err := svc.GetByUUID(actorCtx(999), coreQ, tagQ, tagUUID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -299,9 +285,8 @@ func TestTagService_Get_AdminSeesAll(t *testing.T) {
 
 func TestTagService_Get_OwnerSeesOwn(t *testing.T) {
 	svc, coreQ, tagQ, tagUUID, ownerID, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(ownerID)
 
-	_, err := svc.GetByUUID(context.Background(), coreQ, tagQ, actor, tagUUID)
+	_, err := svc.GetByUUID(actorCtx(ownerID), coreQ, tagQ, tagUUID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -309,21 +294,31 @@ func TestTagService_Get_OwnerSeesOwn(t *testing.T) {
 
 func TestTagService_Get_SubjectSeesAsSubject(t *testing.T) {
 	svc, coreQ, tagQ, tagUUID, _, subjectID, _ := buildServiceWithTag(t)
-	actor := userPrincipal(subjectID)
 
-	_, err := svc.GetByUUID(context.Background(), coreQ, tagQ, actor, tagUUID)
+	_, err := svc.GetByUUID(actorCtx(subjectID), coreQ, tagQ, tagUUID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestTagService_Get_OtherGets404(t *testing.T) {
-	svc, coreQ, tagQ, tagUUID, _, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(777) // unrelated
+func TestTagService_Get_OtherGetsDenied(t *testing.T) {
+	// Row-level read access (owner or subject) is enforced by the Authorizer.
+	// Simulate denial via a denyAllAuthz stub to verify the service surfaces
+	// the authz error when the Authorizer refuses the read.
+	_, coreQ, tagQ, tagUUID, _, _, _ := buildServiceWithTag(t)
+	authzErr := errors.New("not authorized")
+	svc := &TagService{
+		db:             newFakeDB(),
+		az:             denyAllAuthz{err: authzErr},
+		obs:            observer.NewObserverGroup(),
+		entityResolver: entity.NewResolver(),
+		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
+		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
+	}
 
-	_, err := svc.GetByUUID(context.Background(), coreQ, tagQ, actor, tagUUID)
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("want ErrNotFound, got %v", err)
+	_, err := svc.GetByUUID(actorCtx(777), coreQ, tagQ, tagUUID)
+	if !errors.Is(err, authzErr) {
+		t.Errorf("want authz error, got %v", err)
 	}
 }
 
@@ -331,13 +326,12 @@ func TestTagService_Get_NotFound(t *testing.T) {
 	coreQ := newMockCoreQuerier()
 	tagQ := newMockTagQuerier()
 	svc, _ := buildService(coreQ, tagQ)
-	actor := adminPrincipal(1)
 
 	// Default EntityResolver policy: returns ErrForbidden when the UUID is
 	// not found, masking entity existence (privacy default per Phase E).
 	// Resources opting into 404 transparency (e.g. via AllowNotFound("tag"))
 	// would return ErrNotFound; tags has not opted in.
-	_, err := svc.GetByUUID(context.Background(), coreQ, tagQ, actor, uuid.New())
+	_, err := svc.GetByUUID(actorCtx(1), coreQ, tagQ, uuid.New())
 	if !errors.Is(err, entity.ErrForbidden) {
 		t.Errorf("want entity.ErrForbidden (UUID-not-found masked as 403), got %v", err)
 	}
@@ -354,9 +348,8 @@ func TestTagService_Get_AuthorizeDenied(t *testing.T) {
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
-	actor := adminPrincipal(999)
 
-	_, err := svc.GetByUUID(context.Background(), coreQ, tagQ, actor, tagUUID)
+	_, err := svc.GetByUUID(actorCtx(999), coreQ, tagQ, tagUUID)
 	if !errors.Is(err, authzErr) {
 		t.Errorf("want authz error, got %v", err)
 	}
@@ -368,9 +361,8 @@ func TestTagService_Search_NoFilter_Returns400Analog(t *testing.T) {
 	coreQ := newMockCoreQuerier()
 	tagQ := newMockTagQuerier()
 	svc, _ := buildService(coreQ, tagQ)
-	actor := userPrincipal(1)
 
-	_, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{}, Pagination{})
+	_, err := svc.Search(actorCtx(1), coreQ, tagQ, SearchTagsFilter{}, Pagination{})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("want ErrInvalidInput, got %v", err)
 	}
@@ -378,11 +370,10 @@ func TestTagService_Search_NoFilter_Returns400Analog(t *testing.T) {
 
 func TestTagService_Search_AdminSeesAll(t *testing.T) {
 	svc, coreQ, tagQ, _, ownerID, _, _ := buildServiceWithTag(t)
-	actor := adminPrincipal(999)
-	tagQ.grantAdmin(actor.EntityID) // register as admin in mock access-fn simulation
+	tagQ.grantAdmin(999) // register as admin in mock access-fn simulation
 
 	ownerUUID := coreQ.entitiesByID[ownerID].Uuid
-	tags, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{
+	tags, err := svc.Search(actorCtx(999), coreQ, tagQ, SearchTagsFilter{
 		OwnerEntityUUID: &ownerUUID,
 	}, Pagination{})
 	if err != nil {
@@ -399,8 +390,7 @@ func TestTagService_Search_NonAdminFilteredToOwned(t *testing.T) {
 	ownerUUID := coreQ.entitiesByID[ownerID].Uuid
 
 	// actor is the subject: should see tags where they're subject.
-	actor := userPrincipal(subjectID)
-	tags, err := svc.Search(context.Background(), coreQ, tagQ, actor, SearchTagsFilter{
+	tags, err := svc.Search(actorCtx(subjectID), coreQ, tagQ, SearchTagsFilter{
 		OwnerEntityUUID: &ownerUUID,
 	}, Pagination{})
 	if err != nil {
@@ -411,8 +401,7 @@ func TestTagService_Search_NonAdminFilteredToOwned(t *testing.T) {
 	}
 
 	// actor is unrelated: should see nothing.
-	actor2 := userPrincipal(888)
-	tags2, err := svc.Search(context.Background(), coreQ, tagQ, actor2, SearchTagsFilter{
+	tags2, err := svc.Search(actorCtx(888), coreQ, tagQ, SearchTagsFilter{
 		OwnerEntityUUID: &ownerUUID,
 	}, Pagination{})
 	if err != nil {
@@ -427,10 +416,9 @@ func TestTagService_Search_NonAdminFilteredToOwned(t *testing.T) {
 
 func TestTagService_ListBySubject_SubjectSeesAll(t *testing.T) {
 	svc, coreQ, tagQ, _, _, subjectID, _ := buildServiceWithTag(t)
-	actor := userPrincipal(subjectID)
 
 	subjectUUID := coreQ.entitiesByID[subjectID].Uuid
-	tags, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, subjectUUID, nil, Pagination{})
+	tags, err := svc.ListBySubject(actorCtx(subjectID), coreQ, tagQ, subjectUUID, nil, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -445,8 +433,7 @@ func TestTagService_ListBySubject_ThirdPartySeeOnlyOwned(t *testing.T) {
 	subjectUUID := coreQ.entitiesByID[subjectID].Uuid
 
 	// Owner is also owner of the tag — should see their own tag.
-	actor := userPrincipal(ownerID)
-	tags, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, subjectUUID, nil, Pagination{})
+	tags, err := svc.ListBySubject(actorCtx(ownerID), coreQ, tagQ, subjectUUID, nil, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -455,8 +442,7 @@ func TestTagService_ListBySubject_ThirdPartySeeOnlyOwned(t *testing.T) {
 	}
 
 	// Unrelated actor sees nothing.
-	actor2 := userPrincipal(999)
-	tags2, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor2, subjectUUID, nil, Pagination{})
+	tags2, err := svc.ListBySubject(actorCtx(999), coreQ, tagQ, subjectUUID, nil, Pagination{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -469,9 +455,8 @@ func TestTagService_ListBySubject_NotFound(t *testing.T) {
 	coreQ := newMockCoreQuerier()
 	tagQ := newMockTagQuerier()
 	svc, _ := buildService(coreQ, tagQ)
-	actor := userPrincipal(1)
 
-	_, err := svc.ListBySubject(context.Background(), coreQ, tagQ, actor, uuid.New(), nil, Pagination{})
+	_, err := svc.ListBySubject(actorCtx(1), coreQ, tagQ, uuid.New(), nil, Pagination{})
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
@@ -481,10 +466,9 @@ func TestTagService_ListBySubject_NotFound(t *testing.T) {
 
 func TestTagService_Update_OwnerCanChangeColor(t *testing.T) {
 	svc, coreQ, _, tagUUID, ownerID, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(ownerID)
 	newColor := "#FF0000FF"
 
-	tag, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &newColor})
+	tag, err := svc.UpdateByUUID(actorCtx(ownerID), coreQ, tagUUID, UpdateTagInput{Color: &newColor})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -495,32 +479,42 @@ func TestTagService_Update_OwnerCanChangeColor(t *testing.T) {
 
 func TestTagService_Update_AdminCanChangeColor(t *testing.T) {
 	svc, coreQ, _, tagUUID, _, _, _ := buildServiceWithTag(t)
-	actor := adminPrincipal(999)
 	newColor := "#00FF00FF"
 
-	_, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &newColor})
+	_, err := svc.UpdateByUUID(actorCtx(999), coreQ, tagUUID, UpdateTagInput{Color: &newColor})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestTagService_Update_SubjectGetsForbidden(t *testing.T) {
-	svc, coreQ, _, tagUUID, _, subjectID, _ := buildServiceWithTag(t)
-	actor := userPrincipal(subjectID)
+	// Row-level ownership for update (owner-only, not subject) is enforced by
+	// the Authorizer. Simulate denial via a denyAllAuthz stub.
+	_, coreQ, tagQ, tagUUID, _, _, _ := buildServiceWithTag(t)
+	svc := &TagService{
+		db:             newFakeDB(),
+		az:             denyAllAuthz{err: ErrForbidden},
+		obs:            observer.NewObserverGroup(),
+		entityResolver: entity.NewResolver(),
+		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
+		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
+	}
 	newColor := "#0000FFFF"
 
-	_, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &newColor})
+	_, err := svc.UpdateByUUID(actorCtx(1), coreQ, tagUUID, UpdateTagInput{Color: &newColor})
 	if !errors.Is(err, ErrForbidden) {
 		t.Errorf("want ErrForbidden, got %v", err)
 	}
 }
 
 func TestTagService_Update_StrangerGets404(t *testing.T) {
-	svc, coreQ, _, tagUUID, _, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(888)
+	// A tag that doesn't exist returns ErrNotFound regardless of actor.
+	coreQ := newMockCoreQuerier()
+	tagQ := newMockTagQuerier()
+	svc, _ := buildService(coreQ, tagQ)
 	newColor := "#FFFFFFFF"
 
-	_, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &newColor})
+	_, err := svc.UpdateByUUID(actorCtx(888), coreQ, uuid.New(), UpdateTagInput{Color: &newColor})
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
@@ -528,10 +522,9 @@ func TestTagService_Update_StrangerGets404(t *testing.T) {
 
 func TestTagService_Update_InvalidColor(t *testing.T) {
 	svc, coreQ, _, tagUUID, ownerID, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(ownerID)
 	bad := "notacolor"
 
-	_, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: &bad})
+	_, err := svc.UpdateByUUID(actorCtx(ownerID), coreQ, tagUUID, UpdateTagInput{Color: &bad})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("want ErrInvalidInput, got %v", err)
 	}
@@ -539,9 +532,8 @@ func TestTagService_Update_InvalidColor(t *testing.T) {
 
 func TestTagService_Update_NilColorClears(t *testing.T) {
 	svc, coreQ, _, tagUUID, ownerID, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(ownerID)
 
-	tag, err := svc.UpdateByUUID(context.Background(), coreQ, actor, tagUUID, UpdateTagInput{Color: nil})
+	tag, err := svc.UpdateByUUID(actorCtx(ownerID), coreQ, tagUUID, UpdateTagInput{Color: nil})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -554,9 +546,8 @@ func TestTagService_Update_NilColorClears(t *testing.T) {
 
 func TestTagService_Delete_OwnerOK(t *testing.T) {
 	svc, coreQ, _, tagUUID, ownerID, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(ownerID)
 
-	err := svc.DeleteByUUID(context.Background(), coreQ, actor, tagUUID)
+	err := svc.DeleteByUUID(actorCtx(ownerID), coreQ, tagUUID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -564,29 +555,39 @@ func TestTagService_Delete_OwnerOK(t *testing.T) {
 
 func TestTagService_Delete_AdminOK(t *testing.T) {
 	svc, coreQ, _, tagUUID, _, _, _ := buildServiceWithTag(t)
-	actor := adminPrincipal(999)
 
-	err := svc.DeleteByUUID(context.Background(), coreQ, actor, tagUUID)
+	err := svc.DeleteByUUID(actorCtx(999), coreQ, tagUUID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestTagService_Delete_SubjectGetsForbidden(t *testing.T) {
-	svc, coreQ, _, tagUUID, _, subjectID, _ := buildServiceWithTag(t)
-	actor := userPrincipal(subjectID)
+	// Row-level ownership for delete (owner-only, not subject) is enforced by
+	// the Authorizer. Simulate denial via a denyAllAuthz stub.
+	_, coreQ, tagQ, tagUUID, _, _, _ := buildServiceWithTag(t)
+	svc := &TagService{
+		db:             newFakeDB(),
+		az:             denyAllAuthz{err: ErrForbidden},
+		obs:            observer.NewObserverGroup(),
+		entityResolver: entity.NewResolver(),
+		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
+		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
+	}
 
-	err := svc.DeleteByUUID(context.Background(), coreQ, actor, tagUUID)
+	err := svc.DeleteByUUID(actorCtx(1), coreQ, tagUUID)
 	if !errors.Is(err, ErrForbidden) {
 		t.Errorf("want ErrForbidden, got %v", err)
 	}
 }
 
 func TestTagService_Delete_StrangerGets404(t *testing.T) {
-	svc, coreQ, _, tagUUID, _, _, _ := buildServiceWithTag(t)
-	actor := userPrincipal(888)
+	// A tag that doesn't exist returns ErrNotFound regardless of actor.
+	coreQ := newMockCoreQuerier()
+	tagQ := newMockTagQuerier()
+	svc, _ := buildService(coreQ, tagQ)
 
-	err := svc.DeleteByUUID(context.Background(), coreQ, actor, tagUUID)
+	err := svc.DeleteByUUID(actorCtx(888), coreQ, uuid.New())
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
@@ -596,9 +597,8 @@ func TestTagService_Delete_NotFound(t *testing.T) {
 	coreQ := newMockCoreQuerier()
 	tagQ := newMockTagQuerier()
 	svc, _ := buildService(coreQ, tagQ)
-	actor := adminPrincipal(1)
 
-	err := svc.DeleteByUUID(context.Background(), coreQ, actor, uuid.New())
+	err := svc.DeleteByUUID(actorCtx(1), coreQ, uuid.New())
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
@@ -616,9 +616,8 @@ func TestTagService_Delete_ObserverCalled(t *testing.T) {
 		newCoreQuerier: func(_ pgx.Tx) coredb.Querier { return coreQ },
 		newTagQuerier:  func(_ pgx.Tx) tagsdb.Querier { return tagQ },
 	}
-	actor := adminPrincipal(999)
 
-	err := svc.DeleteByUUID(context.Background(), coreQ, actor, tagUUID)
+	err := svc.DeleteByUUID(actorCtx(999), coreQ, tagUUID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

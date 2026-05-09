@@ -16,7 +16,7 @@ import (
 	"github.com/moduleforge/core-api/authz"
 	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/observer"
-	coreservice "github.com/moduleforge/core-api/service"
+	"github.com/moduleforge/core-api/opctx"
 	"github.com/moduleforge/core-api/txhelper"
 	"github.com/moduleforge/core-api/types"
 	coredb "github.com/moduleforge/core-model/db"
@@ -92,12 +92,12 @@ type Tag struct {
 
 // TagServicer defines tag CRUD operations available to httpapi handlers.
 type TagServicer interface {
-	Create(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, in CreateTagInput) (Tag, error)
-	GetByUUID(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, entityUUID uuid.UUID) (Tag, error)
-	Search(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, filter SearchTagsFilter, p Pagination) ([]Tag, error)
-	ListBySubject(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, actor coreservice.Principal, subjectUUID uuid.UUID, purposeFilter *string, p Pagination) ([]Tag, error)
-	UpdateByUUID(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, entityUUID uuid.UUID, in UpdateTagInput) (Tag, error)
-	DeleteByUUID(ctx context.Context, coreQ coredb.Querier, actor coreservice.Principal, entityUUID uuid.UUID) error
+	Create(ctx context.Context, coreQ coredb.Querier, in CreateTagInput) (Tag, error)
+	GetByUUID(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, entityUUID uuid.UUID) (Tag, error)
+	Search(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, filter SearchTagsFilter, p Pagination) ([]Tag, error)
+	ListBySubject(ctx context.Context, coreQ coredb.Querier, tagQ tagsdb.Querier, subjectUUID uuid.UUID, purposeFilter *string, p Pagination) ([]Tag, error)
+	UpdateByUUID(ctx context.Context, coreQ coredb.Querier, entityUUID uuid.UUID, in UpdateTagInput) (Tag, error)
+	DeleteByUUID(ctx context.Context, coreQ coredb.Querier, entityUUID uuid.UUID) error
 }
 
 // TagService implements TagServicer with authorization, transactional mutation,
@@ -131,14 +131,19 @@ func (s *TagService) tagQuerier(tx pgx.Tx) tagsdb.Querier {
 }
 
 // Create inserts an entity row and a tags row in a single transaction.
-// Owner is always set server-side to actor.EntityID — any client-supplied
-// owner is ignored. The subject entity must already exist.
+// Owner is set server-side to the actor's entity ID from opctx — any
+// client-supplied owner is ignored. The subject entity must already exist.
+// Returns ErrForbidden if no actor is present in ctx.
 func (s *TagService) Create(
 	ctx context.Context,
 	coreQ coredb.Querier,
-	actor coreservice.Principal,
 	in CreateTagInput,
 ) (Tag, error) {
+	actorEntityID, ok := opctx.ActorEntityID(ctx)
+	if !ok {
+		return Tag{}, ErrForbidden
+	}
+
 	// 1. Authorize against the tag type ID (entity-level create convention).
 	tagTypeID := s.resolver.IDForSlugMust("tag")
 	if err := s.az.Authorize(ctx, "create", &tagTypeID); err != nil {
@@ -174,7 +179,7 @@ func (s *TagService) Create(
 	}
 
 	// Resolve owner entity (actor) via pre-tx read.
-	ownerEntity, err := coreQ.GetEntityByID(ctx, actor.EntityID)
+	ownerEntity, err := coreQ.GetEntityByID(ctx, actorEntityID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Tag{}, fmt.Errorf("%w: owner entity not found", ErrNotFound)
@@ -206,7 +211,7 @@ func (s *TagService) Create(
 		// Insert tags row.
 		tag, err := txTagQ.CreateTag(ctx, tagsdb.CreateTagParams{
 			EntityID:  entity.ID,
-			OwnerID:   actor.EntityID,
+			OwnerID:   actorEntityID,
 			SubjectID: subjectEntity.ID,
 			Purpose:   in.Purpose,
 			Value:     in.Value,
@@ -236,11 +241,12 @@ func (s *TagService) Create(
 }
 
 // GetByUUID resolves a tag by entity UUID and enforces read authz.
+// Access control (owner or subject) is enforced by the grants-driven Authorizer;
+// the inline filter is no longer needed here.
 func (s *TagService) GetByUUID(
 	ctx context.Context,
 	coreQ coredb.Querier,
 	tagQ tagsdb.Querier,
-	actor coreservice.Principal,
 	entityUUID uuid.UUID,
 ) (Tag, error) {
 	// 1. Resolve UUID → internal entity ID. The default not-found policy
@@ -252,6 +258,8 @@ func (s *TagService) GetByUUID(
 	}
 
 	// 2. Authorize the read against the resolved entity ID.
+	// The Authorizer enforces owner OR subject access via the per-resource
+	// own predicate in the GrantTableGenerator — no inline filter needed.
 	if err := s.az.Authorize(ctx, "read", &tagEntityID); err != nil {
 		return Tag{}, err
 	}
@@ -262,13 +270,6 @@ func (s *TagService) GetByUUID(
 			return Tag{}, ErrNotFound
 		}
 		return Tag{}, fmt.Errorf("tag.GetByUUID: %w", err)
-	}
-
-	// 3. Inline ownership filter: admin OR owner OR subject → OK, else 404.
-	// The Authorizer gate above is binary; this filter enforces the actual
-	// visibility rule for tags' two-principal model (owner + subject).
-	if !actor.IsAdmin && actor.EntityID != row.OwnerID && actor.EntityID != row.SubjectID {
-		return Tag{}, ErrNotFound
 	}
 
 	// Resolve UUIDs for owner and subject.
@@ -290,10 +291,14 @@ func (s *TagService) Search(
 	ctx context.Context,
 	coreQ coredb.Querier,
 	tagQ tagsdb.Querier,
-	actor coreservice.Principal,
 	filter SearchTagsFilter,
 	p Pagination,
 ) ([]Tag, error) {
+	actorEntityID, ok := opctx.ActorEntityID(ctx)
+	if !ok {
+		return nil, ErrForbidden
+	}
+
 	// 1. Authorize against the tag type ID (entity-level list convention).
 	tagTypeID := s.resolver.IDForSlugMust("tag")
 	if err := s.az.Authorize(ctx, "list", &tagTypeID); err != nil {
@@ -313,7 +318,7 @@ func (s *TagService) Search(
 
 	limit, offset := p.normalize()
 	params := tagsdb.SearchTagsParams{
-		ActorEntityID: actor.EntityID,
+		ActorEntityID: actorEntityID,
 		OpIds:         opIDs,
 		Limit:         limit,
 		Offset:        offset,
@@ -380,11 +385,15 @@ func (s *TagService) ListBySubject(
 	ctx context.Context,
 	coreQ coredb.Querier,
 	tagQ tagsdb.Querier,
-	actor coreservice.Principal,
 	subjectUUID uuid.UUID,
 	purposeFilter *string,
 	p Pagination,
 ) ([]Tag, error) {
+	actorEntityID, ok := opctx.ActorEntityID(ctx)
+	if !ok {
+		return nil, ErrForbidden
+	}
+
 	// 1. Resolve the subject entity first so we can authorize against its ID.
 	subjectEntity, err := coreQ.GetEntityByUUID(ctx, subjectUUID)
 	if err != nil {
@@ -413,7 +422,7 @@ func (s *TagService) ListBySubject(
 
 	limit, offset := p.normalize()
 	rows, err := tagQ.ListTagsBySubjectEntityID(ctx, tagsdb.ListTagsBySubjectEntityIDParams{
-		ActorEntityID: actor.EntityID,
+		ActorEntityID: actorEntityID,
 		OpIds:         opIDs,
 		SubjectID:     subjectEntity.ID,
 		Purpose:       purposeParam,
@@ -441,10 +450,11 @@ func (s *TagService) ListBySubject(
 }
 
 // UpdateByUUID updates the color of a tag identified by entity UUID.
+// Row-level access control (owner only, not subject) is enforced by the
+// Authorizer; the inline filter is no longer needed.
 func (s *TagService) UpdateByUUID(
 	ctx context.Context,
 	coreQ coredb.Querier,
-	actor coreservice.Principal,
 	entityUUID uuid.UUID,
 	in UpdateTagInput,
 ) (Tag, error) {
@@ -452,12 +462,6 @@ func (s *TagService) UpdateByUUID(
 	if in.Color != nil && !colorRe.MatchString(*in.Color) {
 		return Tag{}, fmt.Errorf("%w: color must match #RRGGBBAA", ErrInvalidInput)
 	}
-
-	// Pre-tx fetch to build a richer Authorize target.
-	// We need to know the tag's entity ID and access control attributes.
-	// We do this via a separate pre-tx read using the pool-backed querier
-	// from the caller (which is non-tx-scoped). However, since coreQ is
-	// passed in but tagQ is not, we defer the fetch into the tx closure.
 
 	// 1. Authorize — we authorize before fetching; use a stub target
 	//    (no entity ID yet since we haven't fetched).
@@ -480,14 +484,6 @@ func (s *TagService) UpdateByUUID(
 				return ErrNotFound
 			}
 			return fmt.Errorf("tag.UpdateByUUID fetch: %w", err)
-		}
-
-		// Row-level access control: admin OR owner → OK; subject → 403; other → 404.
-		if !actor.IsAdmin && actor.EntityID != row.OwnerID {
-			if actor.EntityID == row.SubjectID {
-				return ErrForbidden
-			}
-			return ErrNotFound
 		}
 
 		entityID = row.EntityID
@@ -532,10 +528,11 @@ func (s *TagService) UpdateByUUID(
 
 // DeleteByUUID removes a tag. The tags row is deleted; the entity row is
 // archived (core-model exposes ArchiveEntity, not a hard DELETE).
+// Row-level access control (owner only, not subject) is enforced by the
+// Authorizer; the inline filter is no longer needed.
 func (s *TagService) DeleteByUUID(
 	ctx context.Context,
 	coreQ coredb.Querier,
-	actor coreservice.Principal,
 	entityUUID uuid.UUID,
 ) error {
 	// 1. Authorize.
@@ -556,14 +553,6 @@ func (s *TagService) DeleteByUUID(
 				return ErrNotFound
 			}
 			return fmt.Errorf("tag.DeleteByUUID fetch: %w", err)
-		}
-
-		// Row-level access control: admin OR owner → OK; subject → 403; other → 404.
-		if !actor.IsAdmin && actor.EntityID != row.OwnerID {
-			if actor.EntityID == row.SubjectID {
-				return ErrForbidden
-			}
-			return ErrNotFound
 		}
 
 		entityID = row.EntityID

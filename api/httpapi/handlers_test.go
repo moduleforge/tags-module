@@ -10,9 +10,14 @@ import (
 
 	"github.com/google/uuid"
 
-	coreservice "github.com/moduleforge/core-api/service"
+	"github.com/moduleforge/core-api/opctx"
 	"github.com/moduleforge/tags-api/service"
 )
+
+// withActor injects an actor entity ID into the request's context.
+func withActor(r *http.Request, entityID int64) *http.Request {
+	return r.WithContext(opctx.WithActor(r.Context(), entityID))
+}
 
 // --- POST /tags ---
 
@@ -20,7 +25,6 @@ func TestHandleCreateTag_201_HappyPath(t *testing.T) {
 	tagUUID := uuid.New()
 	ownerUUID := uuid.New()
 	subjectUUID := uuid.New()
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1, IsAdmin: false}, ok: true}
 	svc := &fakeTagService{tag: service.Tag{
 		EntityUUID:  tagUUID,
 		OwnerUUID:   ownerUUID,
@@ -28,7 +32,7 @@ func TestHandleCreateTag_201_HappyPath(t *testing.T) {
 		Purpose:     "label",
 		Value:       "urgent",
 	}}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	body, _ := json.Marshal(map[string]any{
 		"subject": subjectUUID.String(),
@@ -36,6 +40,7 @@ func TestHandleCreateTag_201_HappyPath(t *testing.T) {
 		"value":   "urgent",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/tags", bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -46,11 +51,11 @@ func TestHandleCreateTag_201_HappyPath(t *testing.T) {
 }
 
 func TestHandleCreateTag_401_Unauthenticated(t *testing.T) {
-	ext := &fakePrincipalExtractor{ok: false}
-	router := NewRouter(buildTestDeps(ext, nil))
+	router := NewRouter(buildTestDeps(nil))
 
 	body, _ := json.Marshal(map[string]any{"subject": uuid.New().String(), "purpose": "x", "value": "y"})
 	req := httptest.NewRequest(http.MethodPost, "/tags", bytes.NewBuffer(body))
+	// no actor injected — unauthenticated
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -60,13 +65,13 @@ func TestHandleCreateTag_401_Unauthenticated(t *testing.T) {
 }
 
 func TestHandleCreateTag_400_MissingSubject(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{err: fmt.Errorf("%w: purpose is required", service.ErrInvalidInput)}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	// Subject is not a valid UUID.
 	body, _ := json.Marshal(map[string]any{"subject": "not-a-uuid", "purpose": "x", "value": "y"})
 	req := httptest.NewRequest(http.MethodPost, "/tags", bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -77,9 +82,8 @@ func TestHandleCreateTag_400_MissingSubject(t *testing.T) {
 }
 
 func TestHandleCreateTag_400_BadColorFromService(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{err: fmt.Errorf("%w: color must match #RRGGBBAA", service.ErrInvalidInput)}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	body, _ := json.Marshal(map[string]any{
 		"subject": uuid.New().String(),
@@ -88,6 +92,7 @@ func TestHandleCreateTag_400_BadColorFromService(t *testing.T) {
 		"color":   "#ZZZZZZZZ",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/tags", bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -98,8 +103,7 @@ func TestHandleCreateTag_400_BadColorFromService(t *testing.T) {
 }
 
 func TestHandleCreateTag_400_UnknownField(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
-	router := NewRouter(buildTestDeps(ext, nil))
+	router := NewRouter(buildTestDeps(nil))
 
 	body, _ := json.Marshal(map[string]any{
 		"subject": uuid.New().String(),
@@ -108,6 +112,7 @@ func TestHandleCreateTag_400_UnknownField(t *testing.T) {
 		"owner":   uuid.New().String(), // unknown field; should be rejected
 	})
 	req := httptest.NewRequest(http.MethodPost, "/tags", bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -120,11 +125,11 @@ func TestHandleCreateTag_400_UnknownField(t *testing.T) {
 // --- GET /tags ---
 
 func TestHandleSearchTags_400_NoFilter(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{err: fmt.Errorf("%w: at least one of owner or subject is required", service.ErrInvalidInput)}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodGet, "/tags", nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -134,11 +139,11 @@ func TestHandleSearchTags_400_NoFilter(t *testing.T) {
 }
 
 func TestHandleSearchTags_200_EmptyResult(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{tags: []service.Tag{}}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodGet, "/tags?owner="+uuid.New().String(), nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -148,10 +153,10 @@ func TestHandleSearchTags_200_EmptyResult(t *testing.T) {
 }
 
 func TestHandleSearchTags_400_InvalidOwnerUUID(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
-	router := NewRouter(buildTestDeps(ext, nil))
+	router := NewRouter(buildTestDeps(nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/tags?owner=not-a-uuid", nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -164,7 +169,6 @@ func TestHandleSearchTags_400_InvalidOwnerUUID(t *testing.T) {
 
 func TestHandleGetTag_200_Authorized(t *testing.T) {
 	tagUUID := uuid.New()
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{tag: service.Tag{
 		EntityUUID:  tagUUID,
 		OwnerUUID:   uuid.New(),
@@ -172,9 +176,10 @@ func TestHandleGetTag_200_Authorized(t *testing.T) {
 		Purpose:     "p",
 		Value:       "v",
 	}}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodGet, "/tags/"+tagUUID.String(), nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -184,11 +189,11 @@ func TestHandleGetTag_200_Authorized(t *testing.T) {
 }
 
 func TestHandleGetTag_404_Unauthorized(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{err: service.ErrNotFound}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodGet, "/tags/"+uuid.New().String(), nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -202,7 +207,6 @@ func TestHandleGetTag_404_Unauthorized(t *testing.T) {
 func TestHandlePutTag_200_HappyPath(t *testing.T) {
 	tagUUID := uuid.New()
 	color := "#FF0000FF"
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{tag: service.Tag{
 		EntityUUID:  tagUUID,
 		OwnerUUID:   uuid.New(),
@@ -211,10 +215,11 @@ func TestHandlePutTag_200_HappyPath(t *testing.T) {
 		Value:       "v",
 		Color:       &color,
 	}}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	body, _ := json.Marshal(map[string]any{"color": color})
 	req := httptest.NewRequest(http.MethodPut, "/tags/"+tagUUID.String(), bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -227,11 +232,11 @@ func TestHandlePutTag_200_HappyPath(t *testing.T) {
 // TestHandlePutTag_400_ImmutabilityBypass is the required test from the spec:
 // PUT body with {"color":"#FF0000FF","purpose":"new"} must return 400.
 func TestHandlePutTag_400_ImmutabilityBypass(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
-	router := NewRouter(buildTestDeps(ext, nil))
+	router := NewRouter(buildTestDeps(nil))
 
 	body, _ := json.Marshal(map[string]any{"color": "#FF0000FF", "purpose": "new"})
 	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(), bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -242,11 +247,11 @@ func TestHandlePutTag_400_ImmutabilityBypass(t *testing.T) {
 }
 
 func TestHandlePutTag_400_UnknownKey(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
-	router := NewRouter(buildTestDeps(ext, nil))
+	router := NewRouter(buildTestDeps(nil))
 
 	body, _ := json.Marshal(map[string]any{"mystery_field": "value"})
 	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(), bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -257,12 +262,12 @@ func TestHandlePutTag_400_UnknownKey(t *testing.T) {
 }
 
 func TestHandlePutTag_400_AbsentColor(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
-	router := NewRouter(buildTestDeps(ext, nil))
+	router := NewRouter(buildTestDeps(nil))
 
 	// Empty object: color key absent — must be 400.
 	body, _ := json.Marshal(map[string]any{})
 	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(), bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -274,7 +279,6 @@ func TestHandlePutTag_400_AbsentColor(t *testing.T) {
 
 func TestHandlePutTag_200_NullColorClears(t *testing.T) {
 	tagUUID := uuid.New()
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	// Service returns a tag with no color — confirming clear was applied.
 	svc := &fakeTagService{tag: service.Tag{
 		EntityUUID:  tagUUID,
@@ -284,11 +288,12 @@ func TestHandlePutTag_200_NullColorClears(t *testing.T) {
 		Value:       "v",
 		Color:       nil,
 	}}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	// Explicit null: {"color": null} — must be 200 (clear color).
 	req := httptest.NewRequest(http.MethodPut, "/tags/"+tagUUID.String(),
 		bytes.NewBufferString(`{"color":null}`))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -299,12 +304,12 @@ func TestHandlePutTag_200_NullColorClears(t *testing.T) {
 }
 
 func TestHandlePutTag_403_SubjectTries(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{err: service.ErrForbidden}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	body, _ := json.Marshal(map[string]any{"color": "#FF0000FF"})
 	req := httptest.NewRequest(http.MethodPut, "/tags/"+uuid.New().String(), bytes.NewBuffer(body))
+	req = withActor(req, 1)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -317,11 +322,11 @@ func TestHandlePutTag_403_SubjectTries(t *testing.T) {
 // --- DELETE /tags/{uuid} ---
 
 func TestHandleDeleteTag_204_Success(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{err: nil}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodDelete, "/tags/"+uuid.New().String(), nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -331,11 +336,11 @@ func TestHandleDeleteTag_204_Success(t *testing.T) {
 }
 
 func TestHandleDeleteTag_403_SubjectForbidden(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 2}, ok: true}
 	svc := &fakeTagService{err: service.ErrForbidden}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodDelete, "/tags/"+uuid.New().String(), nil)
+	req = withActor(req, 2)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -345,11 +350,11 @@ func TestHandleDeleteTag_403_SubjectForbidden(t *testing.T) {
 }
 
 func TestHandleDeleteTag_404_Stranger(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 3}, ok: true}
 	svc := &fakeTagService{err: service.ErrNotFound}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodDelete, "/tags/"+uuid.New().String(), nil)
+	req = withActor(req, 3)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -361,13 +366,13 @@ func TestHandleDeleteTag_404_Stranger(t *testing.T) {
 // --- GET /entities/{uuid}/tags ---
 
 func TestHandleSubjectTags_200_WithTags(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{tags: []service.Tag{
 		{EntityUUID: uuid.New(), OwnerUUID: uuid.New(), SubjectUUID: uuid.New(), Purpose: "p", Value: "v"},
 	}}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodGet, "/entities/"+uuid.New().String()+"/tags", nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -385,11 +390,11 @@ func TestHandleSubjectTags_200_WithTags(t *testing.T) {
 }
 
 func TestHandleSubjectTags_404_UnknownSubject(t *testing.T) {
-	ext := &fakePrincipalExtractor{p: &coreservice.Principal{EntityID: 1}, ok: true}
 	svc := &fakeTagService{err: service.ErrNotFound}
-	router := NewRouter(buildTestDeps(ext, svc))
+	router := NewRouter(buildTestDeps(svc))
 
 	req := httptest.NewRequest(http.MethodGet, "/entities/"+uuid.New().String()+"/tags", nil)
+	req = withActor(req, 1)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -399,10 +404,10 @@ func TestHandleSubjectTags_404_UnknownSubject(t *testing.T) {
 }
 
 func TestHandleSubjectTags_401_Unauthenticated(t *testing.T) {
-	ext := &fakePrincipalExtractor{ok: false}
-	router := NewRouter(buildTestDeps(ext, nil))
+	router := NewRouter(buildTestDeps(nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/entities/"+uuid.New().String()+"/tags", nil)
+	// no actor injected — unauthenticated
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

@@ -7,22 +7,10 @@ import (
 
 	"github.com/google/uuid"
 
-	coreservice "github.com/moduleforge/core-api/service"
 	coredb "github.com/moduleforge/core-model/db"
 	"github.com/moduleforge/tags-api/service"
 	tagsdb "github.com/moduleforge/tags-model/db"
 )
-
-// --- fake PrincipalExtractor ---
-
-type fakePrincipalExtractor struct {
-	p  *coreservice.Principal
-	ok bool
-}
-
-func (f *fakePrincipalExtractor) FromContext(_ context.Context) (*coreservice.Principal, bool) {
-	return f.p, f.ok
-}
 
 // --- fake TagServicer ---
 
@@ -32,27 +20,27 @@ type fakeTagService struct {
 	err  error
 }
 
-func (f *fakeTagService) Create(_ context.Context, _ coredb.Querier, _ coreservice.Principal, _ service.CreateTagInput) (service.Tag, error) {
+func (f *fakeTagService) Create(_ context.Context, _ coredb.Querier, _ service.CreateTagInput) (service.Tag, error) {
 	return f.tag, f.err
 }
 
-func (f *fakeTagService) GetByUUID(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ uuid.UUID) (service.Tag, error) {
+func (f *fakeTagService) GetByUUID(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ uuid.UUID) (service.Tag, error) {
 	return f.tag, f.err
 }
 
-func (f *fakeTagService) Search(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ service.SearchTagsFilter, _ service.Pagination) ([]service.Tag, error) {
+func (f *fakeTagService) Search(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ service.SearchTagsFilter, _ service.Pagination) ([]service.Tag, error) {
 	return f.tags, f.err
 }
 
-func (f *fakeTagService) ListBySubject(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ coreservice.Principal, _ uuid.UUID, _ *string, _ service.Pagination) ([]service.Tag, error) {
+func (f *fakeTagService) ListBySubject(_ context.Context, _ coredb.Querier, _ tagsdb.Querier, _ uuid.UUID, _ *string, _ service.Pagination) ([]service.Tag, error) {
 	return f.tags, f.err
 }
 
-func (f *fakeTagService) UpdateByUUID(_ context.Context, _ coredb.Querier, _ coreservice.Principal, _ uuid.UUID, _ service.UpdateTagInput) (service.Tag, error) {
+func (f *fakeTagService) UpdateByUUID(_ context.Context, _ coredb.Querier, _ uuid.UUID, _ service.UpdateTagInput) (service.Tag, error) {
 	return f.tag, f.err
 }
 
-func (f *fakeTagService) DeleteByUUID(_ context.Context, _ coredb.Querier, _ coreservice.Principal, _ uuid.UUID) error {
+func (f *fakeTagService) DeleteByUUID(_ context.Context, _ coredb.Querier, _ uuid.UUID) error {
 	return f.err
 }
 
@@ -121,7 +109,7 @@ func noopLogger() *slog.Logger {
 
 // buildTestDeps builds a Deps with mocked services.
 // The fakeTagService receives all handler calls; queriers are no-ops.
-func buildTestDeps(ext *fakePrincipalExtractor, tagSvc *fakeTagService) Deps {
+func buildTestDeps(tagSvc *fakeTagService) Deps {
 	if tagSvc == nil {
 		tagSvc = &fakeTagService{}
 	}
@@ -131,7 +119,6 @@ func buildTestDeps(ext *fakePrincipalExtractor, tagSvc *fakeTagService) Deps {
 	return Deps{
 		CoreQuerier: &fakeCoreQuerier{},
 		Services:    svcs,
-		Principal:   ext,
 		Logger:      noopLogger(),
 	}
 }

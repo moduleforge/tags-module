@@ -33,10 +33,6 @@ All 6 planned phases (bootstrap → model → API → GUI → wire into users-mo
 - **N+1 on owner/subject UUID resolution in `Search` and `ListBySubject` hydration.** Phase 1 access-fn rewrite returned the tag's own UUID via JOIN, but owner_id and subject_id are still resolved per-row via `GetEntityByID` in the service layer (`tag.go` ~line 350, ~line 354). For paged niche-app scale this is acceptable; if it becomes hot, batch via `GetEntitiesByIDs(IN ...)` or extend the SQL JOIN.
 - **`display.Registry.Render` unused at runtime.** `coreservice.RegisterBuiltins` is now wired in users-module main.go (first consumer), but no production code path currently calls `Render`. Becomes load-bearing if/when a UI surface needs server-rendered entity display names.
 
-## Cross-cutting framework — deferred from Phase 5 review
-
-- **`actor coreservice.Principal` parameter on read methods** — currently retained for inline ownership filtering. Removing requires either an `IsAdmin` opctx key or moving ownership checks into the Authorizer. Defer.
-
 ## Component workbench (Ladle)
 
 See `stories-next.md` at this module's root for deferred Ladle / Storybook follow-ups (story coverage gaps including `TagChip` truncation + `TagEditor` multi-purpose select, mock-vs-real client decorator, Storybook migration path, visual regression).

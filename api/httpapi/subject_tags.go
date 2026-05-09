@@ -5,13 +5,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	"github.com/moduleforge/core-api/opctx"
 )
 
 // handleSubjectTags handles GET /entities/{uuid}/tags.
 // Returns all tags whose subject is the given entity UUID, filtered by authz.
 func (h *handlers) handleSubjectTags(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.d.Principal.FromContext(r.Context())
-	if !ok {
+	if _, ok := opctx.ActorEntityID(r.Context()); !ok {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
@@ -36,7 +37,6 @@ func (h *handlers) handleSubjectTags(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		h.d.CoreQuerier,
 		h.d.Services.Querier(),
-		*p,
 		subjectUUID,
 		purposeFilter,
 		pag,

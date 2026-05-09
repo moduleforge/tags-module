@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/moduleforge/core-api/opctx"
 	"github.com/moduleforge/tags-api/service"
 )
 
@@ -47,8 +48,7 @@ type createTagRequest struct {
 
 // handleCreateTag handles POST /tags.
 func (h *handlers) handleCreateTag(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.d.Principal.FromContext(r.Context())
-	if !ok {
+	if _, ok := opctx.ActorEntityID(r.Context()); !ok {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
@@ -78,7 +78,6 @@ func (h *handlers) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.d.Services.Tag.Create(
 		r.Context(),
 		h.d.CoreQuerier,
-		*p,
 		in,
 	)
 	if err != nil {
@@ -91,8 +90,7 @@ func (h *handlers) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 
 // handleSearchTags handles GET /tags.
 func (h *handlers) handleSearchTags(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.d.Principal.FromContext(r.Context())
-	if !ok {
+	if _, ok := opctx.ActorEntityID(r.Context()); !ok {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
@@ -132,7 +130,6 @@ func (h *handlers) handleSearchTags(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		h.d.CoreQuerier,
 		h.d.Services.Querier(),
-		*p,
 		filter,
 		pag,
 	)
@@ -150,8 +147,7 @@ func (h *handlers) handleSearchTags(w http.ResponseWriter, r *http.Request) {
 
 // handleGetTag handles GET /tags/{uuid}.
 func (h *handlers) handleGetTag(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.d.Principal.FromContext(r.Context())
-	if !ok {
+	if _, ok := opctx.ActorEntityID(r.Context()); !ok {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
@@ -166,7 +162,6 @@ func (h *handlers) handleGetTag(w http.ResponseWriter, r *http.Request) {
 		r.Context(),
 		h.d.CoreQuerier,
 		h.d.Services.Querier(),
-		*p,
 		entityUUID,
 	)
 	if err != nil {
@@ -187,8 +182,7 @@ type updateTagRequest struct {
 
 // handlePutTag handles PUT /tags/{uuid}.
 func (h *handlers) handlePutTag(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.d.Principal.FromContext(r.Context())
-	if !ok {
+	if _, ok := opctx.ActorEntityID(r.Context()); !ok {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
@@ -230,7 +224,6 @@ func (h *handlers) handlePutTag(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.d.Services.Tag.UpdateByUUID(
 		r.Context(),
 		h.d.CoreQuerier,
-		*p,
 		entityUUID,
 		in,
 	)
@@ -244,8 +237,7 @@ func (h *handlers) handlePutTag(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteTag handles DELETE /tags/{uuid}.
 func (h *handlers) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
-	p, ok := h.d.Principal.FromContext(r.Context())
-	if !ok {
+	if _, ok := opctx.ActorEntityID(r.Context()); !ok {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
@@ -259,7 +251,6 @@ func (h *handlers) handleDeleteTag(w http.ResponseWriter, r *http.Request) {
 	err = h.d.Services.Tag.DeleteByUUID(
 		r.Context(),
 		h.d.CoreQuerier,
-		*p,
 		entityUUID,
 	)
 	if err != nil {

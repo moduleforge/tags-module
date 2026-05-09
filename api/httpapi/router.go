@@ -5,7 +5,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	coreservice "github.com/moduleforge/core-api/service"
 	coredb "github.com/moduleforge/core-model/db"
 	"github.com/moduleforge/tags-api/service"
 )
@@ -16,8 +15,6 @@ type Deps struct {
 	CoreQuerier coredb.Querier
 	// Services holds the tag CRUD implementations.
 	Services *service.Services
-	// Principal extracts caller identity from request context.
-	Principal coreservice.PrincipalExtractor
 	// Logger is the structured logger for handler-level error messages.
 	Logger *slog.Logger
 }
