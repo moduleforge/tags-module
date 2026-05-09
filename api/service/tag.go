@@ -17,6 +17,7 @@ import (
 	"github.com/moduleforge/core-api/entity"
 	"github.com/moduleforge/core-api/observer"
 	"github.com/moduleforge/core-api/opctx"
+	coresvc "github.com/moduleforge/core-api/service"
 	"github.com/moduleforge/core-api/txhelper"
 	"github.com/moduleforge/core-api/types"
 	coredb "github.com/moduleforge/core-model/db"
@@ -54,29 +55,9 @@ type SearchTagsFilter struct {
 	Value             *string
 }
 
-// Pagination carries paged-result query parameters. Limit defaults to 50 if
-// unset; Offset defaults to 0. Limit is capped at 200.
-type Pagination struct {
-	Limit  int32
-	Offset int32
-}
-
-func (p Pagination) normalize() (limit, offset int32) {
-	switch {
-	case p.Limit <= 0:
-		limit = 50
-	case p.Limit > 200:
-		limit = 200
-	default:
-		limit = p.Limit
-	}
-	if p.Offset < 0 {
-		offset = 0
-	} else {
-		offset = p.Offset
-	}
-	return
-}
+// Pagination is the shared limit/offset type from core. Re-exported here so
+// callers in this package do not need to import core-api/service directly.
+type Pagination = coresvc.Pagination
 
 // Tag is the service-layer representation of a tag, using public UUIDs.
 type Tag struct {
@@ -316,7 +297,7 @@ func (s *TagService) Search(
 		return nil, fmt.Errorf("tag.Search resolve op_ids: %w", err)
 	}
 
-	limit, offset := p.normalize()
+	limit, offset := p.Normalize()
 	params := tagsdb.SearchTagsParams{
 		ActorEntityID: actorEntityID,
 		OpIds:         opIDs,
@@ -420,7 +401,7 @@ func (s *TagService) ListBySubject(
 		purposeParam = pgtype.Text{String: *purposeFilter, Valid: true}
 	}
 
-	limit, offset := p.normalize()
+	limit, offset := p.Normalize()
 	rows, err := tagQ.ListTagsBySubjectEntityID(ctx, tagsdb.ListTagsBySubjectEntityIDParams{
 		ActorEntityID: actorEntityID,
 		OpIds:         opIDs,
