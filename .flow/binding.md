@@ -32,7 +32,7 @@ notes: Session-binding manifest produced by `project-flow-check`. Regenerated on
 |-----------|-------|-------|
 | standard doc set | absent | No README.md at root; no AGENTS.md |
 | docs/ discoverability | n/a | No docs/ directory |
-| plan/ shape | n/a | No plan/ directory yet |
+| plan/ shape | present | overview.md, TODO.yaml present in plan worktree |
 | make-layout | partial | build/test/clean present; no run/start target |
 
 ## Bound skill chain
@@ -59,4 +59,6 @@ notes: Session-binding manifest produced by `project-flow-check`. Regenerated on
 
 ## Active plans
 
-_No active plans._
+| Slug | Branch | Worktree | Status |
+|------|--------|----------|--------|
+| bun-migration | plan/bun-migration | /Users/zane/playground/moduleforge/tags-module/worktree/plan/bun-migration | healthy |
