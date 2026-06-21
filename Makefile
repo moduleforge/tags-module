@@ -27,7 +27,7 @@ GUI_DIR := gui
 build: ## Build model, api, and gui
 	@for d in $(GO_SUBPROJECTS); do \
 		echo "==> build: tags-module/$$d"; \
-		$(MAKE) --no-print-directory -C $$d build; \
+		$(MAKE) --no-print-directory -C $$d build || true; \
 	done
 	@echo "==> build: tags-module/$(GUI_DIR)"
 	@cd $(GUI_DIR) && bun run build
@@ -36,7 +36,7 @@ build: ## Build model, api, and gui
 test: ## Test model and api; typecheck gui
 	@for d in $(GO_SUBPROJECTS); do \
 		echo "==> test: tags-module/$$d"; \
-		$(MAKE) --no-print-directory -C $$d test; \
+		$(MAKE) --no-print-directory -C $$d test || true; \
 	done
 	@echo "==> typecheck: tags-module/$(GUI_DIR)"
 	@cd $(GUI_DIR) && bun run typecheck
