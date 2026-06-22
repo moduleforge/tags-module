@@ -7,6 +7,8 @@ node_modules/
 # files
 CLAUDE.md
 yalc.lock
+# comes from plugins
+/.mcp.json
 
 # Worktree-local go.work for isolated builds inside tags-module/worktree/*.
 # The authoritative workspace file is user-components/go.work; we deliberately
